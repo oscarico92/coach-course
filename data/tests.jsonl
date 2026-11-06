@@ -1,0 +1,4 @@
+{"id": "doc-001", "type": "in_docs", "question": "EXEMPLE À REMPLACER : dans le plan 10 km débutant du corpus, combien de séances par semaine sont prévues ?", "expected": "3", "expected_sources": ["plan_10km_debutant.md"]}
+{"id": "abs-001", "type": "absent", "question": "Quel est le record du monde du 10 km en salle en 1950 ?", "expected": null, "expected_sources": []}
+{"id": "task-001", "type": "task", "question": "Mon objectif est 10 km en 50 minutes. Calcule mes allures et ajoute 3 séances la semaine prochaine dans mon calendrier.", "expected": null, "check": "ics_contains_3_sessions_next_week", "expected_sources": []}
+{"id": "amb-001", "type": "ambiguous", "question": "C'est quoi la meilleure ?", "expected": null, "expected_sources": []}
