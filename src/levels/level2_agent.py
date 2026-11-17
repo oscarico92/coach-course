@@ -47,7 +47,7 @@ def answer(question, trace, confirm=None, context=None):
     messages = [{"role": "system", "content": system_prompt(ctx["today"])},
                 {"role": "user", "content": question}]
     calls, written, asked_confirmation, sources_seen = [], [], False, set()
-    final = None
+    final, pending = None, None
 
     for step in range(MAX_AGENT_STEPS):
         if trace.total_tokens > MAX_AGENT_TOKENS:
@@ -77,8 +77,13 @@ def answer(question, trace, confirm=None, context=None):
                 sources_seen |= {e["source"] for e in result.get("extraits", [])}
             calls.append({"name": name, "args": args, "error": error})
             trace.log_tool(name, args, result, error)
+            if result.get("en_attente_confirmation"):
+                pending = {"name": name, "args": args}
             messages.append({"role": "tool", "tool_name": name,
                              "content": json.dumps({"erreur": error} if error else result, ensure_ascii=False)})
+        if pending:
+            final = "Je propose d'ajouter ces séances à ton calendrier. Tu confirmes ?"
+            break
     else:
         trace.log("stop", reason=f"limite de {MAX_AGENT_STEPS} étapes atteinte")
 
@@ -87,7 +92,7 @@ def answer(question, trace, confirm=None, context=None):
     cited = [s for s in dict.fromkeys(CITATION.findall(final)) if s in sources_seen]
     return {"answer": final, "sources": cited, "abstained": final.upper().startswith(ABSTAIN),
             "tool_calls": calls, "written": written, "asked_confirmation": asked_confirmation,
-            "task_success": None}  # calculé par eval.py à partir de l'état final
+            "pending_write": pending, "task_success": None}  # calculé par eval.py à partir de l'état final
 
 
 def _run_tool(name, args, ctx, confirm):
@@ -128,8 +133,21 @@ def _guarded_write(name, args, ctx, confirm):
                 "consigne": "Rien n'a été écrit. Propose à l'utilisateur une alternative conforme."}, None
 
     # 2) Confirmation explicite de l'utilisateur avant toute écriture
-    if not confirm(name, args):
+    decision = confirm(name, args)
+    if decision is None:   # interface : la décision sera prise par l'utilisateur après l'affichage
+        return {"en_attente_confirmation": True, "confirmation_demandee": True, "ajoutees": 0}, None
+    if not decision:
         return {"confirmation_demandee": True, "ajoutees": 0,
                 "message": "L'utilisateur a refusé : rien n'a été écrit. Ne réessaie pas sans nouvelle demande."}, None
     result = tools.FUNCTIONS[name](args, ctx)
     return {**result, "confirmation_demandee": True}, None
+
+
+def execute_confirmed(args, trace, context=None):
+    """Écriture après un clic « Confirmer » dans l'interface : les règles sont revérifiées
+    (le calendrier a pu changer entre la proposition et la confirmation)."""
+    ctx = {"today": date.today(), "weather": None, "calendar_path": CALENDAR_DIR / "utilisateur.ics", **(context or {})}
+    result, error = _run_tool("ajouter_seances", args, ctx, lambda n, a: True)
+    trace.log_tool("ajouter_seances", args, result, error)
+    trace.log("confirmation", decision="confirmée par l'utilisateur")
+    return result, error

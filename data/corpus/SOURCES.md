@@ -26,3 +26,10 @@ avec la date et l'identifiant de révision de chaque article, ce qui fige la ver
 
 | Fichier | Article | Révision | Date |
 |---|---|---|---|
+| wikipedia/Vitesse_maximale_aérobie.md | Vitesse maximale aérobie | 241086437 | 17/11/2026 |
+| wikipedia/Fartlek.md | Fartlek | 230721134 | 17/11/2026 |
+| wikipedia/Marathon_(sport).md | Marathon (sport) | 241222347 | 17/11/2026 |
+| wikipedia/Semi-marathon.md | Semi-marathon | 240590354 | 17/11/2026 |
+| wikipedia/Course_à_pied.md | Course à pied | 240754956 | 17/11/2026 |
+| wikipedia/Échauffement.md | Échauffement | 211280679 | 17/11/2026 |
+| wikipedia/Surentraînement.md | Surentraînement | 241181934 | 17/11/2026 |
