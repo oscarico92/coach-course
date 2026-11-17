@@ -17,17 +17,45 @@ AVAILABLE = tools.ready()
 USES_TOOLS = True
 ABSTAIN = "JE NE SAIS PAS"
 CITATION = re.compile(r"\[([^\[\]]+?\.md)(?:#[^\]]*)?\]")
+WRITE_REQUEST = re.compile(r"\b(ajoute|ajouter|mets|mettre|prévois|planifie|programme)\b", re.I)
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
 
+def _calendar(today):
+    lines = []
+    for i in range(1, 15):
+        d = today + timedelta(days=i)
+        lines.append(f"{JOURS[d.weekday()]} {d.isoformat()}")
+    monday = today + timedelta(days=7 - today.weekday())
+    return "\n".join(lines), monday
+
+
 def system_prompt(today):
+    days, monday = _calendar(today)
     return f"""Tu es le coach de course à pied du club « Foulées ECE ». Aujourd'hui : {JOURS[today.weekday()]} {today.isoformat()}.
-Tu disposes d'outils. Règles :
-- Pour toute information sur les plans et règles du club, utilise rechercher_corpus et cite le fichier entre crochets, ex. [plan_10km_50min.md].
-- Pour tout calcul d'allure ou de VMA, utilise calcul_allures : ne calcule jamais toi-même.
-- Avant d'ajouter des séances, consulte lire_calendrier et meteo pour les jours concernés.
-- ajouter_seances modifie le calendrier : l'utilisateur confirmera ; si l'outil refuse (règle du club), propose une alternative conforme.
-- Si une information indispensable manque (quel plan, quel jour), pose une question au lieu de deviner.
+« La semaine prochaine » va du lundi {monday.isoformat()} au dimanche {(monday + timedelta(days=6)).isoformat()}.
+« Mardi prochain », « jeudi prochain »... désignent le jour de la semaine prochaine.
+Jours à venir :
+{days}
+
+Règles :
+- Plans et règles du club : utilise rechercher_corpus et cite le fichier entre crochets, ex. [plan_10km_50min.md].
+- Allure ou VMA : utilise calcul_allures, ne calcule jamais toi-même. Un temps objectif se passe en minutes
+  (1 h 45 = 105, 3 h 45 = 225) avec distance_km (10, 21.0975 ou 42.195). Recopie les allures et les temps obtenus
+  exactement au format m:ss, par exemple « 4:27 min/km » ou « 1:45 » (jamais « 1 minute et 45 secondes »).
+- Lecture du calendrier : lire_calendrier. Pour compter des séances intenses, utilise le champ "intense".
+- Semaine d'un plan ou séance d'un plan (séance qualité, sortie longue... des plans 5km, 10km, semi, marathon) :
+  appelle semaine_plan, qui renvoie les séances de la semaine prochaine. Passe-les à ajouter_seances, en gardant seulement celles demandées et en changeant
+  le champ "jour" si l'utilisateur impose d'autres jours.
+- Pour un jour de la semaine prochaine (« mardi prochain »), renseigne "jour" (ex. "mardi") et pas "date" :
+  le système calcule la date. Séance isolée (hors plan) : appelle ajouter_seances directement. Types :
+  endurance fondamentale = "endurance", sortie longue = "sortie_longue", fractionné ou VMA = "fractionne",
+  seuil = "seuil", allure 10 km = "allure_10km". Environ 6 min/km en endurance pour estimer les km.
+- Ne demande jamais de confirmation dans ta réponse : le système la demande lui-même à l'utilisateur,
+  et il vérifie aussi les règles du club et la météo.
+- Si ajouter_seances refuse une séance (règle du club, météo), rappelle-le aussitôt avec une version conforme :
+  autre jour, endurance au lieu d'une séance intense, ou moins de km. Si un outil renvoie une erreur, corrige les arguments.
+- Ne pose une question que si la demande est vraiment impossible à interpréter. Un plan, une semaine ou un jour cités suffisent.
 - Si la réponse n'est ni dans les documents ni accessible par un outil, commence par « {ABSTAIN} ».
 - Pas d'avis médical. Réponds en français, de façon concise."""
 
@@ -48,6 +76,9 @@ def answer(question, trace, confirm=None, context=None):
                 {"role": "user", "content": question}]
     calls, written, asked_confirmation, sources_seen = [], [], False, set()
     final = None
+    wants_write = bool(WRITE_REQUEST.search(question))
+    nudges = 0
+    paces = []
 
     for step in range(MAX_AGENT_STEPS):
         if trace.total_tokens > MAX_AGENT_TOKENS:
@@ -57,6 +88,14 @@ def answer(question, trace, confirm=None, context=None):
         trace.log_llm(res, note=f"étape {step + 1}")
         messages.append(res["message"])
         if not res["tool_calls"]:
+            if wants_write and not asked_confirmation and nudges < 2:
+                nudges += 1
+                tried = any(c["name"] == "ajouter_seances" for c in calls)
+                messages.append({"role": "user", "content":
+                                 "Les séances ont été refusées : rappelle ajouter_seances avec une version conforme "
+                                 "(autre jour, endurance au lieu d'intense, moins de km)." if tried else
+                                 "Tu n'as pas encore appelé ajouter_seances. Appelle-le maintenant avec les séances demandées."})
+                continue
             final = res["content"].strip()
             break
 
@@ -75,6 +114,10 @@ def answer(question, trace, confirm=None, context=None):
                     written += args.get("seances", [])
             if name == "rechercher_corpus" and not error:
                 sources_seen |= {e["source"] for e in result.get("extraits", [])}
+            if name == "semaine_plan" and not error:
+                sources_seen.add(result["plan"])
+            if result.get("allure_cible"):
+                paces.append(result["allure_cible"])
             calls.append({"name": name, "args": args, "error": error})
             trace.log_tool(name, args, result, error)
             messages.append({"role": "tool", "tool_name": name,
@@ -84,6 +127,9 @@ def answer(question, trace, confirm=None, context=None):
 
     if final is None:
         final = f"Je n'ai pas pu terminer la demande en {MAX_AGENT_STEPS} étapes."
+    for p in dict.fromkeys(paces):
+        if p not in final:
+            final += f"\n\nAllure cible : {p} min/km."
     cited = [s for s in dict.fromkeys(CITATION.findall(final)) if s in sources_seen]
     return {"answer": final, "sources": cited, "abstained": final.upper().startswith(ABSTAIN),
             "tool_calls": calls, "written": written, "asked_confirmation": asked_confirmation,
@@ -102,11 +148,30 @@ def _run_tool(name, args, ctx, confirm):
         return {}, f"{type(e).__name__} : {e}"
 
 
+def _fix(violation):
+    if violation.startswith("R5 : vent"):
+        return "Vent ou orage : garde la séance mais change de jour (le lendemain par exemple)."
+    if violation.startswith("R5"):
+        return "Chaleur : remplace la séance intense par de l'endurance, ou change de jour."
+    if violation.startswith("R2"):
+        return "Trop de séances intenses rapprochées : place-la au moins deux jours après une autre séance intense."
+    if violation.startswith("R1"):
+        return "Volume trop élevé : réduis les km pour respecter le maximum indiqué."
+    if violation.startswith("R6"):
+        return "Pas de jour de repos : retire une séance de la semaine."
+    return "Propose une version conforme."
+
+
 def _guarded_write(name, args, ctx, confirm):
     seances = args.get("seances")
     if not seances:
         return {}, "Argument 'seances' manquant ou vide."
+    next_monday = ctx["today"] + timedelta(days=7 - ctx["today"].weekday())
     for s in seances:
+        if s.get("jour") in tools.JOURS:
+            s["date"] = (next_monday + timedelta(days=tools.JOURS.index(s["jour"]))).isoformat()
+        if not s.get("date"):
+            return {}, "Chaque séance doit avoir un jour (semaine prochaine) ou une date AAAA-MM-JJ."
         if s.get("type") not in tools.SESSION_TYPES:
             return {}, f"Type de séance invalide : {s.get('type')}. Types possibles : {tools.SESSION_TYPES}."
         date.fromisoformat(s["date"])  # lève une erreur claire si la date est mal formée
@@ -125,7 +190,8 @@ def _guarded_write(name, args, ctx, confirm):
     violations = rules.check(seances, existing, weather)
     if violations:
         return {"refuse": True, "violations": violations,
-                "consigne": "Rien n'a été écrit. Propose à l'utilisateur une alternative conforme."}, None
+                "consigne": "Rien n'a été écrit. Rappelle ajouter_seances en corrigeant ainsi : "
+                             + " ".join(dict.fromkeys(_fix(v) for v in violations))}, None
 
     # 2) Confirmation explicite de l'utilisateur avant toute écriture
     if not confirm(name, args):

@@ -59,9 +59,14 @@ def scripted_chat(script):
 def run(script, confirm=True, calendar=None, weather=None):
     path = Path(tempfile.mkdtemp()) / "cal.ics"
     CAL[path] = list(calendar or [])
+    if USE_REAL:
+        tools.impl.init_calendrier(path, CAL[path])
     agent.chat = scripted_chat(script)
     out = agent.answer("test", Trace(2, "test"), confirm=lambda n, a: confirm,
                        context={"today": "2026-11-12", "weather": weather or {}, "calendar_path": path})
+    if USE_REAL:
+        CAL[path] = tools.FUNCTIONS["lire_calendrier"]({"date_debut": "2000-01-01", "date_fin": "2100-01-01"},
+                                                       {"calendar_path": path})["seances"]
     return out, CAL[path], agent.chat.seen
 
 
