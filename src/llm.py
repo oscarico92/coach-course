@@ -9,7 +9,14 @@ import requests
 from config import OLLAMA_URL, LLM_MODEL, EMBED_MODEL, LLM_TEMPERATURE
 
 
-def chat(messages, tools=None, model=LLM_MODEL, temperature=LLM_TEMPERATURE, seed=0):
+# Valeurs par défaut modifiables à l'exécution (eval.py --pass-k fait varier la graine et la température)
+TEMPERATURE = LLM_TEMPERATURE
+SEED = 0
+
+
+def chat(messages, tools=None, model=LLM_MODEL, temperature=None, seed=None):
+    temperature = TEMPERATURE if temperature is None else temperature
+    seed = SEED if seed is None else seed
     payload = {
         "model": model,
         "messages": messages,
