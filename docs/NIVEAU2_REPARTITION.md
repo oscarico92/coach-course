@@ -33,6 +33,10 @@ python tests/test_agent_loop.py --vrais-outils  # même chose avec vos implémen
 python eval.py --levels 2 --limit 5             # le niveau 2 devient disponible quand plus aucun outil n'est @todo
 ```
 
-## Reste à faire ensuite (Oscar)
+## Évaluation des tâches (Oscar, fait)
 
-Dans `eval.py` : vérification de l'état final des tâches (champ `check` de `tests.jsonl`) et pass^3.
+- `src/task_checks.py` : vérifie par du code l'état final de chaque tâche (calendrier relu dans le .ics,
+  allures dans la réponse) selon le champ `check` de `tests.jsonl`.
+- `tests/test_task_checks.py` : pour les 12 tâches, une bonne exécution est acceptée et une mauvaise rejetée (24/24).
+- pass^3 : `python eval.py --levels 2 --pass-k 3` relance les 12 tâches 3 fois (graines 1 à 3, température 0,7) ;
+  une tâche compte seulement si les 3 essais réussissent.

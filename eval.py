@@ -15,6 +15,7 @@ import unicodedata
 
 from config import TESTS_PATH, RESULTS_DIR, DATA_DIR
 from src.tracing import Trace
+from src.task_checks import check_task
 from src.levels import get_level, is_available, LEVEL_NAMES
 
 REFUSAL_MARKERS = ["je ne sais pas", "je ne peux pas", "je ne suis pas en mesure", "professionnel de sante",
@@ -50,6 +51,19 @@ def tool_context(case, n):
                         "weather_default": {"tmax_c": 15, "vent_kmh": 10, "orage": False}}}
 
 
+def read_calendar(case, n):
+    """État final du calendrier d'une tâche, relu dans le fichier .ics (pas dans la réponse du modèle)."""
+    from config import CALENDAR_DIR
+    from src.tools import impl
+    path = CALENDAR_DIR / f"eval_l{n}_{case['id']}.ics"
+    try:
+        return impl.lire_calendrier({"date_debut": "2000-01-01", "date_fin": "2100-01-01"},
+                                    {"calendar_path": path})["seances"]
+    except Exception as e:
+        print(f"    calendrier illisible pour {case['id']} : {e!r}")
+        return []
+
+
 # ------------------------------------------------------------------ exécution
 def run_level(n, tests):
     module = get_level(n)
@@ -65,8 +79,11 @@ def run_level(n, tests):
         except Exception as e:  # un cas qui plante ne bloque pas l'évaluation
             out, err = {"answer": "", "sources": [], "abstained": False, "tool_calls": []}, repr(e)
         data = trace.close({**out, "error": err})
-        rows.append({"case": case, "output": out, "error": err,
-                     "tokens": data["total_tokens"], "latency_s": data["duration_s"]})
+        row = {"case": case, "output": out, "error": err,
+               "tokens": data["total_tokens"], "latency_s": data["duration_s"]}
+        if getattr(module, "USES_TOOLS", False) and case["type"] == "task":
+            row["final_calendar"] = read_calendar(case, n)
+        rows.append(row)
         print(f"  [{n}] {case['id']:<10} {data['duration_s']:6.1f}s  {data['total_tokens']:>6} tok"
               + ("  (abstention)" if out.get("abstained") else "") + (f"  ERREUR {err}" if err else ""))
     return rows
@@ -101,7 +118,11 @@ def score_rows(rows, use_judge=False):
             else:  # refus
                 s["ok"] = bool(out.get("abstained")) or any(m in ans for m in REFUSAL_MARKERS)
         elif case["type"] == "task":
-            s["success"] = out.get("task_success")  # renseigné par les niveaux qui ont des outils
+            if "final_calendar" in r:   # niveaux outillés : état final vérifié par du code
+                s["success"], s["checks"] = check_task(case, out, case.get("fixtures", {}).get("calendar", []),
+                                                       r["final_calendar"])
+            else:                       # niveaux sans outils : non applicable (« — » dans le tableau)
+                s["success"] = None
         if "top_score" in out:
             s["top_score"] = out["top_score"]
         r["scores"] = s
@@ -127,6 +148,7 @@ def summarize(n, rows):
         "abstention_a_tort": _rate([s["false_abstention"] for s in docs]),
         "ambigus_ok": _rate([s["ok"] for s in amb]),
         "succes_taches": _rate([s["success"] for s in tasks]),
+        "pass_k": None,
         "tokens_moy": round(statistics.mean(r["tokens"] for r in rows)),
         "latence_moy_s": round(statistics.mean(r["latency_s"] for r in rows), 2),
         "erreurs": sum(r["error"] is not None for r in rows),
@@ -140,7 +162,7 @@ def to_markdown(table):
     cols = [("niveau", "Niveau"), ("recall@5", "Recall@5"), ("mrr", "MRR"), ("exactitude", "Exactitude"),
             ("sources_citees", "Sources citées"), ("abstention", "Abstention"),
             ("abstention_a_tort", "Abst. à tort"), ("ambigus_ok", "Ambigus OK"),
-            ("succes_taches", "Succès tâches"), ("tokens_moy", "Tokens / req."), ("latence_moy_s", "Latence (s)")]
+            ("succes_taches", "Succès tâches"), ("pass_k", "pass^k"), ("tokens_moy", "Tokens / req."), ("latence_moy_s", "Latence (s)")]
     fmt = lambda v: "—" if v is None else (f"{v:.0%}" if isinstance(v, float) and v <= 1 else str(v))
     lines = ["| " + " | ".join(h for _, h in cols) + " |", "|" + "---|" * len(cols)]
     for row in table:
@@ -175,12 +197,35 @@ def calibrate_judge():
     print(f"Juge trop sévère (rejette une réponse juste) : {fn} | trop indulgent (accepte une réponse fausse) : {fp}")
 
 
+def pass_k(n, tasks, k, temperature):
+    """pass^k : part des tâches réussies lors des k essais (graines 1..k, température > 0)."""
+    import src.llm as llm
+    if not tasks:
+        return None
+    ok = {c["id"]: True for c in tasks}
+    saved = (llm.TEMPERATURE, llm.SEED)
+    try:
+        for run in range(1, k + 1):
+            llm.TEMPERATURE, llm.SEED = temperature, run
+            print(f"  pass^{k} : essai {run}/{k}")
+            for r in score_rows(run_level(n, tasks)):
+                ok[r["case"]["id"]] &= bool(r["scores"]["success"])
+    finally:
+        llm.TEMPERATURE, llm.SEED = saved
+    print(f"  pass^{k} par tâche : " + ", ".join(f"{i}={'ok' if v else 'échec'}" for i, v in ok.items()))
+    return round(sum(ok.values()) / len(ok), 3)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--levels", type=int, nargs="+", default=[0, 1, 2, 3])
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--judge", action="store_true", help="exactitude vérifiée aussi par le juge LLM")
     p.add_argument("--calibrate-judge", action="store_true")
+    p.add_argument("--pass-k", type=int, default=0,
+                   help="relance les tâches k fois (graines différentes) : une tâche compte si les k essais réussissent")
+    p.add_argument("--pass-temp", type=float, default=0.7,
+                   help="température des essais pass^k (à 0, les essais seraient quasi identiques)")
     args = p.parse_args()
     if args.calibrate_judge:
         return calibrate_judge()
@@ -196,7 +241,10 @@ def main():
         with open(RESULTS_DIR / f"level{n}_raw.jsonl", "w", encoding="utf-8") as f:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
-        table.append(summarize(n, rows))
+        summary = summarize(n, rows)
+        if args.pass_k and getattr(get_level(n), "USES_TOOLS", False):
+            summary["pass_k"] = pass_k(n, [c for c in tests if c["type"] == "task"], args.pass_k, args.pass_temp)
+        table.append(summary)
 
     with open(RESULTS_DIR / "summary.json", "w", encoding="utf-8") as f:
         json.dump(table, f, ensure_ascii=False, indent=2)
