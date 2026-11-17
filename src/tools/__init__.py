@@ -16,6 +16,7 @@ from src.tools import impl
 SESSION_TYPES = ["recuperation", "endurance", "sortie_longue", "allure_marathon",
                  "allure_semi", "allure_10km", "seuil", "fractionne"]
 INTENSE_TYPES = {"allure_semi", "allure_10km", "seuil", "fractionne"}
+JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
 SCHEMAS = [
     {"type": "function", "function": {
@@ -48,23 +49,33 @@ SCHEMAS = [
         "parameters": {"type": "object", "properties": {
             "requete": {"type": "string"}}, "required": ["requete"]}}},
     {"type": "function", "function": {
+        "name": "semaine_plan",
+        "description": "Séances d'une semaine d'un plan du club, placées la semaine prochaine, avec jour, titre, "
+                       "type et km, plus l'allure cible du plan : à passer telles quelles (ou filtrées) à ajouter_seances.",
+        "parameters": {"type": "object", "properties": {
+            "plan": {"type": "string", "enum": ["5km", "10km", "semi", "marathon"]},
+            "semaine": {"type": "integer", "description": "numéro de semaine du plan (1 = première)"}},
+            "required": ["plan", "semaine"]}}},
+    {"type": "function", "function": {
         "name": "ajouter_seances",
         "description": "AJOUTE des séances au calendrier de l'utilisateur. Action qui modifie ses données : "
                        "l'utilisateur devra confirmer, et les règles du club sont vérifiées avant l'écriture.",
         "parameters": {"type": "object", "properties": {
             "seances": {"type": "array", "items": {"type": "object", "properties": {
-                "date": {"type": "string", "description": "AAAA-MM-JJ"},
+                "jour": {"type": "string", "enum": JOURS,
+                         "description": "jour de la semaine prochaine ; à préférer à date"},
+                "date": {"type": "string", "description": "AAAA-MM-JJ, seulement hors semaine prochaine"},
                 "titre": {"type": "string", "description": "ex. « Fractionné 8 × 400 m à 95 % VMA »"},
                 "type": {"type": "string", "enum": SESSION_TYPES},
                 "km": {"type": "number", "description": "distance estimée en km"},
                 "duree_min": {"type": "number"}},
-                "required": ["date", "titre", "type", "km"]}}},
+                "required": ["titre", "type", "km"]}}},
             "required": ["seances"]}}},
 ]
 
 # Classement des outils par effet : seuls les outils « write » demandent une confirmation.
 EFFECTS = {"calcul_allures": "read", "meteo": "read", "lire_calendrier": "read",
-           "rechercher_corpus": "read", "ajouter_seances": "write"}
+           "rechercher_corpus": "read", "semaine_plan": "read", "ajouter_seances": "write"}
 
 FUNCTIONS = {name: getattr(impl, name) for name in EFFECTS}
 
