@@ -32,6 +32,24 @@ def load_tests(limit=None):
     return tests[:limit] if limit else tests
 
 
+def tool_context(case, n):
+    """Contexte reproductible pour les niveaux outillés : date simulée, météo simulée,
+    calendrier de départ (fixtures du cas) et réponse simulée à la demande de confirmation."""
+    from datetime import date
+    from config import CALENDAR_DIR
+    from src.tools import impl
+    fx = case.get("fixtures", {})
+    path = CALENDAR_DIR / f"eval_l{n}_{case['id']}.ics"
+    if path.exists():
+        path.unlink()
+    impl.init_calendrier(path, fx.get("calendar", []))
+    wants = case.get("confirm", True)
+    return {"confirm": lambda name, args: wants,
+            "context": {"today": case.get("ref_date", date.today().isoformat()),
+                        "weather": fx.get("weather", {}), "calendar_path": path,
+                        "weather_default": {"tmax_c": 15, "vent_kmh": 10, "orage": False}}}
+
+
 # ------------------------------------------------------------------ exécution
 def run_level(n, tests):
     module = get_level(n)
@@ -39,7 +57,10 @@ def run_level(n, tests):
     for case in tests:
         trace = Trace(level=n, question=case["question"], case_id=case["id"])
         try:
-            out = module.answer(case["question"], trace)
+            if getattr(module, "USES_TOOLS", False):
+                out = module.answer(case["question"], trace, **tool_context(case, n))
+            else:
+                out = module.answer(case["question"], trace)
             err = None
         except Exception as e:  # un cas qui plante ne bloque pas l'évaluation
             out, err = {"answer": "", "sources": [], "abstained": False, "tool_calls": []}, repr(e)

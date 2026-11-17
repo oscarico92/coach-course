@@ -17,6 +17,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "6"))
+MAX_AGENT_TOKENS = int(os.getenv("MAX_AGENT_TOKENS", "20000"))
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.45"))  # à régler avec les scores affichés par eval.py
 
