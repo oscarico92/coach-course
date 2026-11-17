@@ -44,3 +44,7 @@
 
 Les questions de culture générale sur la course (où le niveau 0 est déjà bon) sont volontairement peu nombreuses :
 le jeu de test mesure ce que le RAG et l'agent apportent. À mentionner dans le rapport.
+
+## Historique des corrections
+
+- 10/11/2026 : doc-019, ajout de `plan_10km_50min.md` aux sources acceptées (ce plan énonce aussi la règle R4 : « Une séance de fractionné manquée n'est pas rattrapée le lendemain »). Erreur du jeu de test, pas du système.
