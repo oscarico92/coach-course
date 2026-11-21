@@ -56,13 +56,13 @@ def scripted_chat(script):
     return chat
 
 
-def run(script, confirm=True, calendar=None, weather=None):
+def run(script, confirm=True, calendar=None, weather=None, question="test"):
     path = Path(tempfile.mkdtemp()) / "cal.ics"
     CAL[path] = list(calendar or [])
     if USE_REAL:
         tools.impl.init_calendrier(path, CAL[path])
     agent.chat = scripted_chat(script)
-    out = agent.answer("test", Trace(2, "test"), confirm=lambda n, a: confirm,
+    out = agent.answer(question, Trace(2, question), confirm=lambda n, a: confirm,
                        context={"today": "2026-11-12", "weather": weather or {}, "calendar_path": path})
     if USE_REAL:
         CAL[path] = tools.FUNCTIONS["lire_calendrier"]({"date_debut": "2000-01-01", "date_fin": "2100-01-01"},
@@ -111,6 +111,21 @@ check("outil inconnu : erreur renvoyée, rien ne plante", "inconnu" in str(seen)
 # 8. boucle bornée
 out, _, _ = run([[("lire_calendrier", {"date_debut": "2026-11-16", "date_fin": "2026-11-22"})]] * 20)
 check("boucle bornée par MAX_AGENT_STEPS", "étapes" in out["answer"])
+# 9. demande floue : le modèle pose une question, pas de relance
+out, cal, seen = run(["Quel type de séance et quel jour ?"], question="Ajoute une séance.")
+check("demande floue : la question du modèle n'est pas relancée", out["answer"].endswith("?") and len(seen) == 1)
+# 10. annonce sans appel d'outil : relance, puis écriture
+out, cal, seen = run(["Je vais ajouter la séance.",
+                      [("ajouter_seances", {"seances": [S("2026-11-19", "endurance")]})]],
+                     question="Ajoute un footing jeudi prochain.")
+check("annonce sans écriture : relance puis séance ajoutée", len(cal) == 1 and "pas encore appelé" in str(seen))
+# 11. question après un refus (« Voulez-vous de l'endurance ? ») : relance quand même
+out, cal, seen = run([[("ajouter_seances", {"seances": [S("2026-11-19", "seuil")]})],
+                      "Il fera 31 °C. Voulez-vous de l'endurance à la place ?",
+                      [("ajouter_seances", {"seances": [S("2026-11-19", "endurance")]})]],
+                     weather={"2026-11-19": {"tmax_c": 31, "vent_kmh": 10, "orage": False}},
+                     question="Mets une séance de seuil jeudi prochain.")
+check("question après un refus : relance puis version conforme ajoutée", len(cal) == 1 and cal[0]["type"] == "endurance")
 
-print(f"\n{ok}/8 tests réussis")
-sys.exit(0 if ok == 8 else 1)
+print(f"\n{ok}/11 tests réussis")
+sys.exit(0 if ok == 11 else 1)

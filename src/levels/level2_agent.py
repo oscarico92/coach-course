@@ -88,7 +88,10 @@ def answer(question, trace, confirm=None, context=None):
         trace.log_llm(res, note=f"étape {step + 1}")
         messages.append(res["message"])
         if not res["tool_calls"]:
-            if wants_write and not asked_confirmation and nudges < 2:
+            # question posée avant tout appel d'outil = demande de précision : on la laisse passer.
+            # Après un appel d'outil, une question est une demande de confirmation, que le système gère lui-même.
+            asks_user = "?" in res["content"] and not calls
+            if wants_write and not asked_confirmation and not asks_user and nudges < 2:
                 nudges += 1
                 tried = any(c["name"] == "ajouter_seances" for c in calls)
                 messages.append({"role": "user", "content":

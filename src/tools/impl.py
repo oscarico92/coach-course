@@ -180,35 +180,55 @@ def _type(text):
     return "endurance"
 
 
+def _jour(text, defaut):
+    m = re.search(r"\b(" + "|".join(JOURS) + r")\b", text.lower())
+    return m[1] if m else defaut
+
+
+def _km(text, defaut):
+    m = re.search(r"(\d+)\s*×\s*(\d+)\s*km", text)
+    if m:
+        return int(m[1]) * int(m[2])
+    m = re.search(r"(\d+)\s*km", text)
+    return int(m[1]) if m else defaut
+
+
+def _libres(fixes, candidats, n):
+    pris = {f[0] for f in fixes}
+    return [j for j in candidats if j not in pris][:n]
+
+
 def semaine_plan(args, ctx):
     plan = args.get("plan")
     if plan not in PLANS:
         raise ValueError(f"Plan inconnu : {plan}. Plans possibles : {', '.join(PLANS)}.")
     fichier = PLANS[plan]
-    v = _plan_row(fichier, int(args["semaine"]))
+    semaine = int(args["semaine"])
+    v = _plan_row(fichier, semaine)
+    course = plan != "5km" and v[-1].lower().startswith("course")
 
     if plan == "5km":
         seances = [(j, f"Course/marche : {v[1]}", "endurance", 4) for j in ("mardi", "jeudi", "dimanche")]
     elif plan == "10km":
-        seances = [("mardi", f"Fractionné : {v[1]}", _type(v[1]), 8),
-                   ("jeudi", "Endurance fondamentale 45 min", "endurance", 8),
-                   ("samedi", f"Allure 10 km : {v[2]}", _type(v[2]), 9),
-                   ("dimanche", f"Sortie longue {v[3]}", "sortie_longue", round(_minutes(v[3]) / 6))]
+        fixes = [(_jour(v[1], "mardi"), f"Fractionné : {v[1]}", _type(v[1]), 8),
+                 (_jour(v[2], "samedi"), f"Allure 10 km : {v[2]}", _type(v[2]), 9)]
+        if not course:
+            fixes.append(("dimanche", f"Sortie longue {v[3]}", "sortie_longue", round(_minutes(v[3]) / 6)))
+        seances = fixes + [(j, "Endurance fondamentale 45 min", "endurance", 8)
+                           for j in _libres(fixes, ["jeudi", "mercredi", "vendredi"], 1)]
     else:
         vol = int(re.match(r"\d+", v[1])[0])
-        sl = round(_minutes(v[-1]) / 6)
         if plan == "semi":
-            fixes = [("mardi", f"Séance qualité : {v[2]}", _type(v[2]), 10),
-                     ("dimanche", f"Sortie longue {v[3]}", "sortie_longue", sl)]
-            if 4 <= int(args["semaine"]) <= 8:
+            fixes = [(_jour(v[2], "mardi"), f"Séance qualité : {v[2]}", _type(v[2]), 10)]
+            if 4 <= semaine <= 8:
                 fixes.append(("samedi", "Footing de récupération 35 min", "recuperation", 6))
-            libres = ["mercredi", "vendredi"]
+            libres = _libres(fixes, ["mercredi", "vendredi", "jeudi"], 2)
         else:
-            km_c = re.search(r"(\d+) km", v[3])
-            fixes = [("mardi", f"Séance A : {v[2]}", _type(v[2]), 10),
-                     ("vendredi", f"Allure marathon : {v[3]}", "allure_marathon", int(km_c[1]) + 4 if km_c else 12),
-                     ("dimanche", f"Sortie longue {v[4]}", "sortie_longue", sl)]
-            libres = ["mercredi"]
+            fixes = [(_jour(v[2], "mardi"), f"Séance A : {v[2]}", _type(v[2]), 10),
+                     (_jour(v[3], "vendredi"), f"Allure marathon : {v[3]}", "allure_marathon", _km(v[3], 8) + 4)]
+            libres = _libres(fixes, ["mercredi", "jeudi", "samedi"], 1)
+        if not course:
+            fixes.append(("dimanche", f"Sortie longue {v[-1]}", "sortie_longue", round(_minutes(v[-1]) / 6)))
         reste = max(vol - sum(f[3] for f in fixes), 0)
         seances = fixes + [(j, "Endurance fondamentale", "endurance", max(round(reste / len(libres)), 5)) for j in libres]
 
@@ -219,7 +239,12 @@ def semaine_plan(args, ctx):
     out = [{"date": (lundi + timedelta(days=JOURS.index(j))).isoformat(), "jour": j, "titre": t, "type": typ, "km": km}
            for j, t, typ, km in seances]
     out.sort(key=lambda s: s["date"])
-    res = {"plan": fichier, "semaine": int(args["semaine"]), "seances": out}
+    res = {"plan": fichier, "semaine": semaine, "seances": out}
+    if course:
+        j = _jour(v[-1], "dimanche")
+        res["course"] = {"jour": j, "date": (lundi + timedelta(days=JOURS.index(j))).isoformat(),
+                         "note": "Semaine de course : pas de sortie longue, la course a lieu ce jour-là. "
+                                 "Ne pas l'ajouter comme séance."}
     from config import CORPUS_DIR
     m = re.search(r"Allure cible en course : (\d:\d\d)", (CORPUS_DIR / fichier).read_text(encoding="utf-8"))
     if m:

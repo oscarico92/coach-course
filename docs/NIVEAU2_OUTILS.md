@@ -68,3 +68,12 @@ python tests/test_agent_loop.py --vrais-outils
 python tests/test_task_checks.py
 python eval.py --levels 2
 ```
+
+## Suites de l'issue #4
+
+- **Semaine de course** : quand la sortie longue du plan est « Course le dimanche », `semaine_plan` ne crée plus de sortie longue et renvoie la course à part (clé `course`). Les jours écrits dans le plan (« (jeudi) », « le mercredi ») sont respectés et l'endurance va sur un jour libre.
+- **« 2 × 6 km »** est compté 12 km (plan marathon, séance C).
+- **Relance** : si le modèle pose une question avant tout appel d'outil, c'est une demande de précision et on ne le relance plus. Après un appel d'outil, une question est une demande de confirmation (« Voulez-vous que j'ajoute… ? ») et la relance s'applique toujours. Une première version qui ne relançait jamais une réponse avec « ? » faisait retomber task-003 et task-005 (10/12).
+- **Tests** : `tests/test_outils.py` (18 cas sur `calcul_allures` et `semaine_plan`) et 3 cas de relance dans `test_agent_loop.py` (11/11).
+
+Mesure après ces changements : tâches 12/12, cas ambigus `amb-*` au niveau 2 : 5/5.
