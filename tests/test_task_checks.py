@@ -46,6 +46,16 @@ SCENARIOS = {
                                             S("2026-11-20", "AM", "allure_marathon", 10), S("2026-11-22", "SL", "sortie_longue", 14)], True)),
     "task-012": (("Allure semi 4:58 min/km.", [S("2026-11-17", "2 × 15 min seuil", "seuil", 10)], True),
                  ("Allure semi 5:10.", [S("2026-11-18", "2 × 15 min seuil", "seuil", 10)], True)),
+    # tâches non vues pendant le réglage du prompt (task-h*)
+    "task-h01": (("Semaine 2 du plan semi ajoutée.", [S("2026-11-17", "10 × 400 m", "fractionne", 10), S("2026-11-18", "EF", "endurance"),
+                                                      S("2026-11-20", "EF 2", "endurance"), S("2026-11-22", "Sortie longue", "sortie_longue", 12)], True),
+                 ("Semaine 2 ajoutée.", [S("2026-11-17", "10 × 400 m", "fractionne", 10), S("2026-11-18", "Seuil", "seuil", 10),
+                                         S("2026-11-20", "EF", "endurance"), S("2026-11-22", "SL", "sortie_longue", 20)], True)),
+    "task-h02": (("Orage vendredi : je le place samedi.", [S("2026-11-21", "Fractionné", "fractionne")], True),
+                 ("Ajouté vendredi.", [S("2026-11-20", "Fractionné", "fractionne")], True)),
+    "task-h03": (("Il faut tenir 5:13 min/km.", [], False), ("Il faut tenir 5:30 min/km.", [], False)),
+    "task-h04": (("Seuil à 5:26 min/km.", [], False), ("Seuil à 4:50 min/km.", [], False)),
+    "task-h05": (("3 séances pour 35 km au total.", [], False), ("3 séances pour 32 km.", [], False)),
 }
 
 errors = 0
@@ -58,5 +68,5 @@ for tid, case in T.items():
         failed = [k for k, v in detail.items() if not v]
         print(f"{status} {tid} exécution {label:<8} -> {'réussie' if got else 'échouée'}"
               + (f"  (vérifs en échec : {', '.join(failed)})" if failed else ""))
-print(f"\n{24 - errors}/24 vérifications conformes")
+print(f"\n{2 * len(T) - errors}/{2 * len(T)} vérifications conformes")
 sys.exit(1 if errors else 0)

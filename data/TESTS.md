@@ -1,13 +1,13 @@
 # Jeu de test (`tests.jsonl`)
 
-47 cas, figés le 08/11/2026, à ne plus modifier une fois les premières mesures faites
+52 cas (47 figés le 08/11/2026, 5 tâches non vues ajoutées le 21/11/2026), à ne plus modifier une fois les premières mesures faites
 (sinon, dater le changement et relancer tous les niveaux).
 
 | Type | Nb | Minimum du sujet | Ce que l'on vérifie |
 |---|---|---|---|
 | `in_docs` | 25 | 20 | réponse correcte (`must_contain` puis juge LLM), source citée parmi `expected_sources` |
 | `absent` | 5 | 5 | abstention |
-| `task` | 12 | 10 | état final vérifié par du code (`check`), pass^3 sur 3 essais |
+| `task` | 12 + 5 | 10 | état final vérifié par du code (`check`), pass^3 sur 3 essais |
 | `ambiguous` | 5 | 5 | `clarification` (question de précision) ou `refus` |
 
 ## Champs
@@ -48,3 +48,10 @@ le jeu de test mesure ce que le RAG et l'agent apportent. À mentionner dans le 
 ## Historique des corrections
 
 - 10/11/2026 : doc-019, ajout de `plan_10km_50min.md` aux sources acceptées (ce plan énonce aussi la règle R4 : « Une séance de fractionné manquée n'est pas rattrapée le lendemain »). Erreur du jeu de test, pas du système.
+
+- 21/11/2026 : ajout de 5 tâches `task-h01` à `task-h05` (`held_out: true`), écrites APRÈS le réglage du prompt
+  du niveau 2 et jamais utilisées pour le régler. Elles sont notées à part (colonne « Tâches non vues »), pour
+  mesurer si le 12/12 obtenu sur les tâches de réglage se généralise. Formulations, plans et dates différents
+  des 12 tâches d'origine (semi en 1 h 50, VMA 13, orage, semaine 2 du plan semi, lecture du calendrier).
+  Valeurs vérifiées par calcul : semi 1 h 50 = 110 / 21,0975 = 5:13 min/km ; seuil à 85 % de 13 km/h = 5:26 min/km ;
+  calendrier 7 + 12 + 16 = 35 km en 3 séances. **Ne pas modifier le prompt en regardant ces 5 tâches.**
