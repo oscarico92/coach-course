@@ -137,6 +137,7 @@ def _rate(values):
 def summarize(n, rows):
     by = lambda t: [r["scores"] for r in rows if r["case"]["type"] == t]
     docs, absent, amb, tasks = by("in_docs"), by("absent"), by("ambiguous"), by("task")
+    task_rows = [r for r in rows if r["case"]["type"] == "task"]
     top = lambda t: [s["top_score"] for s in by(t) if "top_score" in s]
     return {
         "niveau": f"{n} · {LEVEL_NAMES[n]}",
@@ -147,7 +148,9 @@ def summarize(n, rows):
         "abstention": _rate([s["abstained"] for s in absent]),
         "abstention_a_tort": _rate([s["false_abstention"] for s in docs]),
         "ambigus_ok": _rate([s["ok"] for s in amb]),
-        "succes_taches": _rate([s["success"] for s in tasks]),
+        # tâches utilisées pour régler le prompt / tâches jamais vues pendant le réglage (task-h*)
+        "succes_taches": _rate([s["success"] for s, r in zip(tasks, task_rows) if not r["case"].get("held_out")]),
+        "succes_taches_non_vues": _rate([s["success"] for s, r in zip(tasks, task_rows) if r["case"].get("held_out")]),
         "pass_k": None,
         "tokens_moy": round(statistics.mean(r["tokens"] for r in rows)),
         "latence_moy_s": round(statistics.mean(r["latency_s"] for r in rows), 2),
@@ -162,7 +165,7 @@ def to_markdown(table):
     cols = [("niveau", "Niveau"), ("recall@5", "Recall@5"), ("mrr", "MRR"), ("exactitude", "Exactitude"),
             ("sources_citees", "Sources citées"), ("abstention", "Abstention"),
             ("abstention_a_tort", "Abst. à tort"), ("ambigus_ok", "Ambigus OK"),
-            ("succes_taches", "Succès tâches"), ("pass_k", "pass^k"), ("tokens_moy", "Tokens / req."), ("latence_moy_s", "Latence (s)")]
+            ("succes_taches", "Succès tâches"), ("succes_taches_non_vues", "Tâches non vues"), ("pass_k", "pass^k"), ("tokens_moy", "Tokens / req."), ("latence_moy_s", "Latence (s)")]
     fmt = lambda v: "—" if v is None else (f"{v:.0%}" if isinstance(v, float) and v <= 1 else str(v))
     lines = ["| " + " | ".join(h for _, h in cols) + " |", "|" + "---|" * len(cols)]
     for row in table:
