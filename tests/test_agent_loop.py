@@ -197,5 +197,36 @@ out, cal, _ = run([[("ajouter_seances", {"seances": [S("2026-11-19", "seuil")]})
                   weather={"2026-11-19": {"tmax_c": 31, "vent_kmh": 10, "orage": False}}, question="Un seuil jeudi ?")
 check("refus non corrigé : la réponse rappelle que rien n'est écrit", cal == [] and "aucune séance n'a été enregistrée" in out["answer"])
 
-print(f"\n{ok}/24 tests réussis")
-sys.exit(0 if ok == 24 else 1)
+
+# 25 à 31. proposition d'une version conforme par le code après un refus (_propose)
+from datetime import date as _date  # noqa: E402
+TODAY = _date(2026, 11, 12)
+W = lambda **days: (lambda d: days.get(d.replace("-", "_"), {"tmax_c": 15, "vent_kmh": 10, "orage": False}))
+P = lambda d, t, km=8, jour=None: {"date": d, "titre": t, "type": t, "km": km, **({"jour": jour} if jour else {})}
+hot = {"tmax_c": 31, "vent_kmh": 10, "orage": False}
+
+p = agent._propose([P("2026-11-19", "seuil", jour="jeudi")], [], W(**{"2026_11_19": hot}), TODAY)
+check("chaleur : seuil déplacé au jour le plus proche (vendredi), jour recalculé",
+      p and p[0]["date"] == "2026-11-20" and p[0]["jour"] == "vendredi" and p[0]["type"] == "seuil")
+p = agent._propose([P("2026-11-21", "sortie_longue", 14)], [],
+                   W(**{"2026_11_21": {"tmax_c": 12, "vent_kmh": 60, "orage": False}}), TODAY)
+check("vent : sortie longue déplacée au dimanche", p and p[0]["date"] == "2026-11-22")
+p = agent._propose([P("2026-11-20", "fractionne")], [],
+                   W(**{"2026_11_20": {"tmax_c": 14, "vent_kmh": 20, "orage": True}}), TODAY)
+check("orage : fractionné déplacé hors du vendredi", p and p[0]["date"] != "2026-11-20")
+prev = [{"date": d, "titre": "Footing", "intense": False, "km": k}
+        for d, k in [("2026-11-09", 10), ("2026-11-11", 8), ("2026-11-13", 8), ("2026-11-15", 14)]]
+p = agent._propose([P(f"2026-11-{d}", "endurance", 12) for d in (16, 18, 20, 22)], prev, W(), TODAY)
+check("R1 : 48 km ramenés à 44 km au plus", p and sum(x["km"] for x in p) <= 44 and sum(x["km"] for x in p) >= 43)
+p = agent._propose([P("2026-11-18", "fractionne")], [{"date": "2026-11-17", "titre": "VMA", "intense": True, "km": 8}],
+                   W(), TODAY)
+check("R2 : fractionné écarté d'au moins deux jours de l'autre séance intense",
+      p and abs(_date.fromisoformat(p[0]["date"]) - _date(2026, 11, 17)).days >= 2)
+full = [{"date": f"2026-11-{d}", "titre": "Footing", "intense": False, "km": 5} for d in range(16, 22)]
+check("R6 sans solution : pas de proposition", agent._propose([P("2026-11-22", "endurance", 5)], full, W(), TODAY) is None)
+out, cal, seen = run([[("ajouter_seances", {"seances": [{"jour": "jeudi", "titre": "Seuil", "type": "seuil", "km": 8}]})]],
+                     weather={"2026-11-19": hot}, question="Mets un seuil jeudi.")
+check("refus : la proposition calculée est renvoyée au modèle", "proposition" in str(seen) and "2026-11-20" in str(seen))
+
+print(f"\n{ok}/31 tests réussis")
+sys.exit(0 if ok == 31 else 1)

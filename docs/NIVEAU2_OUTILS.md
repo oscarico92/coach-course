@@ -177,3 +177,25 @@ classification à 3 classes avec priorité quand la demande commence par « Calc
 répond ACTION, une question binaire sans exemples (`write_intent`, OUI/NON : « la demande demande-t-elle d'ajouter des
 séances, même si elle demande aussi autre chose ? ») décide de l'intention d'écriture. Un appel court de plus, seulement
 pour les questions ACTION ; le routage des questions doc n'est pas modifié.
+
+## pass^3 et proposition d'une version conforme par le code (23/11/2026)
+
+pass^3 (3 essais, température 0,7) : 59 % (départ 41 %) ; tâches vues 9/12, non vues 2/5. Le run unique à
+température 0 (92 % / 80 %) surestime la fiabilité. `scripts/diag_traces.py` (détail des essais) :
+
+- task-010 et task-h05 : `écriture=False` sur tous les essais (pas de faux OUI). Quand elles échouent, le modèle
+  annonce l'outil (« je vais utiliser lire_calendrier ») sans l'appeler ; le repli vers le RAG n'y peut rien. Non corrigé.
+- task-005, task-006 (et task-h02) : même refus R5 à chaque essai ; selon l'essai, le modèle rappelle l'outil avec
+  une version conforme ou la propose en texte sans rien écrire, malgré les relances.
+
+**Correction.** Après un refus, `_propose` calcule par du code une version conforme : déplacement au jour le plus
+proche de la même semaine (après plutôt qu'avant, jamais dans le passé ni sur un jour occupé), sinon endurance le même
+jour pour une séance intense, puis km réduits au prorata pour R1. Elle est renvoyée dans le refus (`proposition`) avec la
+consigne de la recopier telle quelle ; la relance renvoie aussi vers elle. Pas de proposition si aucune version
+conforme n'existe (R6 par exemple) : l'ancienne consigne par règle s'applique.
+
+Simulation avec les vrais outils et les fixtures (premier appel refusé, puis proposition recopiée) : task-005, task-006,
+task-h02 et task-008 réussissent. Reste à mesurer si le modèle la recopie vraiment.
+
+**Choix non retenu.** Appliquer la proposition directement par le code (avec confirmation) rendrait le résultat
+indépendant du modèle, mais l'agent ne déciderait plus de rien : à discuter dans le rapport.

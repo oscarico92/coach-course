@@ -180,8 +180,8 @@ def answer(question, trace, confirm=None, context=None):
                 nudges += 1
                 tried = any(c["name"] == "ajouter_seances" for c in calls)
                 messages.append({"role": "user", "content":
-                                 "Les séances ont été refusées : rappelle ajouter_seances avec une version conforme "
-                                 "(autre jour, endurance au lieu d'intense, moins de km)." if tried else
+                                 "Les séances ont été refusées : rappelle ajouter_seances avec la liste « proposition » "
+                                 "renvoyée par l'outil (version conforme calculée par le système), sans la modifier." if tried else
                                  "Tu n'as pas encore appelé ajouter_seances. Appelle-le maintenant avec les séances demandées."})
                 continue
             final = res["content"].strip()
@@ -273,6 +273,69 @@ def _fix(violation):
     return "Propose une version conforme."
 
 
+def _propose(seances, existing, get_weather, today):
+    """Cherche par du code une version des séances qui respecte les règles, pour que le modèle n'ait
+    qu'à la recopier après un refus (il raisonnait mal sur la correction, surtout à température > 0).
+
+    Pour chaque séance, dans l'ordre : déplacement vers le jour le plus proche de la même semaine
+    (après plutôt qu'avant à distance égale, jamais dans le passé ni sur un jour déjà occupé), puis
+    endurance le même jour si elle est intense, puis endurance déplacée. Une modification n'est gardée
+    que si elle réduit le nombre de violations. Ensuite, R1 : km réduits au prorata.
+    Renvoie la liste conforme, ou None si aucune n'est trouvée (R6 par exemple)."""
+    def violations(p):
+        return rules.check(p, existing, {x["date"]: get_weather(x["date"]) for x in p})
+
+    def at(x, d):
+        y = {**x, "date": d.isoformat()}
+        y.pop("jour", None)
+        return y
+
+    def easy(x):
+        return {**x, "type": "endurance", "titre": "Endurance fondamentale"}
+
+    prop = [dict(x) for x in seances]
+    base = len(violations(prop))
+    for i, x in enumerate(prop):
+        if base == 0:
+            break
+        d0 = date.fromisoformat(x["date"])
+        monday = d0 - timedelta(days=d0.weekday())
+        taken = {str(e["date"]) for e in existing} | {y["date"] for j, y in enumerate(prop) if j != i}
+        days = sorted((monday + timedelta(days=k) for k in range(7)),
+                      key=lambda d: (abs((d - d0).days), d < d0))
+        moves = [at(x, d) for d in days if d != d0 and d > today and d.isoformat() not in taken]
+        candidates = moves
+        if x.get("type") in tools.INTENSE_TYPES:
+            candidates = moves + [easy(x)] + [easy(m) for m in moves]
+        for c in candidates:
+            trial = prop[:i] + [c] + prop[i + 1:]
+            n = len(violations(trial))
+            if n < base:
+                prop, base = trial, n
+                break
+
+    if any(v.startswith("R1") for v in violations(prop)):
+        for w in {date.fromisoformat(x["date"]) - timedelta(days=date.fromisoformat(x["date"]).weekday()) for x in prop}:
+            prev = sum(e.get("km", 0) for e in existing
+                       if w - timedelta(days=7) <= date.fromisoformat(str(e["date"])) < w)
+            already = sum(e.get("km", 0) for e in existing if w <= date.fromisoformat(str(e["date"])) < w + timedelta(days=7))
+            new = [x for x in prop if w <= date.fromisoformat(x["date"]) < w + timedelta(days=7)]
+            total = sum(x.get("km", 0) for x in new)
+            room = prev * (1 + rules.MAX_VOLUME_INCREASE) - already
+            if prev > 0 and total > room > 0:
+                for x in new:   # arrondi à 0,5 km inférieur pour ne pas dépasser le plafond
+                    x["km"] = int(x.get("km", 0) * room / total * 2) / 2
+
+    if violations(prop):
+        return None
+    next_monday = today + timedelta(days=7 - today.weekday())
+    for x in prop:   # « jour » rempli pour la semaine prochaine, sinon _guarded_write recalculerait l'ancienne date
+        d = date.fromisoformat(x["date"])
+        if next_monday <= d < next_monday + timedelta(days=7):
+            x["jour"] = tools.JOURS[d.weekday()]
+    return prop
+
+
 def _guarded_write(name, args, ctx, confirm):
     seances = args.get("seances")
     if not seances:
@@ -292,17 +355,28 @@ def _guarded_write(name, args, ctx, confirm):
     start, end = dates[0] - timedelta(days=dates[0].weekday() + 7), dates[-1] + timedelta(days=6)
     existing = tools.FUNCTIONS["lire_calendrier"]({"date_debut": start.isoformat(), "date_fin": end.isoformat()},
                                                   ctx)["seances"]
-    weather = {}
-    for d in dict.fromkeys(s["date"] for s in seances):
-        try:
-            weather[d] = tools.FUNCTIONS["meteo"]({"date": d}, ctx)
-        except Exception:
-            pass  # météo indisponible : R5 non vérifiable, on ne bloque pas (à signaler dans le rapport)
+    cache = {}
+
+    def get_weather(d):
+        if d not in cache:
+            try:
+                cache[d] = tools.FUNCTIONS["meteo"]({"date": d}, ctx)
+            except Exception:
+                cache[d] = {}  # météo indisponible : R5 non vérifiable, on ne bloque pas (à signaler dans le rapport)
+        return cache[d]
+
+    weather = {d: get_weather(d) for d in dict.fromkeys(s["date"] for s in seances)}
     violations = rules.check(seances, existing, weather)
     if violations:
-        return {"refuse": True, "violations": violations,
-                "consigne": "Rien n'a été écrit. Rappelle ajouter_seances en corrigeant ainsi : "
-                             + " ".join(dict.fromkeys(_fix(v) for v in violations))}, None
+        refus = {"refuse": True, "violations": violations}
+        proposition = _propose(seances, existing, get_weather, ctx["today"])
+        if proposition:
+            return {**refus, "proposition": proposition,
+                    "consigne": "Rien n'a été écrit. Version conforme calculée par le système : rappelle "
+                                "ajouter_seances avec exactement la liste « proposition », sans la modifier, "
+                                "puis explique le changement à l'utilisateur."}, None
+        return {**refus, "consigne": "Rien n'a été écrit. Rappelle ajouter_seances en corrigeant ainsi : "
+                                     + " ".join(dict.fromkeys(_fix(v) for v in violations))}, None
 
     # 2) Confirmation explicite de l'utilisateur avant toute écriture
     decision = confirm(name, args)
