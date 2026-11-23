@@ -170,3 +170,10 @@ Tâches non vues 20 % -> 60 % (h03, h05), mais tâches vues 92 % -> 83 % : task-
 ajoute**… ») n'étaient plus relancées, le routeur les classant sans doute en ACTION à cause du calcul (le regex
 les attrapait par « ajoute »). Correction : ECRITURE prioritaire quand la demande contient un ajout, même avec un
 calcul. `diag_taches.py` affiche désormais l'intention d'écriture retenue.
+
+**Mesure suivante.** Doc 92 %, tâches non vues 80 % (h01 passe), tâches vues toujours 83 % : task-002 et task-012
+restent classées sans intention d'écriture malgré la consigne de priorité. Le routeur 7B ne gère pas une
+classification à 3 classes avec priorité quand la demande commence par « Calcule… ». Correction : quand le routeur
+répond ACTION, une question binaire sans exemples (`write_intent`, OUI/NON : « la demande demande-t-elle d'ajouter des
+séances, même si elle demande aussi autre chose ? ») décide de l'intention d'écriture. Un appel court de plus, seulement
+pour les questions ACTION ; le routage des questions doc n'est pas modifié.

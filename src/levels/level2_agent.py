@@ -114,6 +114,22 @@ def route(question, trace):
     return choice
 
 
+WRITE_PROMPT = """Réponds uniquement par OUI ou NON.
+La demande de l'utilisateur demande-t-elle d'ajouter, de placer ou de planifier des séances dans son calendrier,
+même si elle demande aussi autre chose (calcul d'allure, explication) ?"""
+
+
+def write_intent(question, trace):
+    """Question binaire posée quand le routeur a répondu ACTION : le routeur à 3 classes classait
+    « calcule mon allure et ajoute… » en ACTION malgré la consigne de priorité."""
+    res = chat([{"role": "system", "content": WRITE_PROMPT},
+                {"role": "user", "content": question}], temperature=0)
+    trace.log_llm(res, note="intention d'écriture")
+    yes = bool(re.search(r"\bOUI\b", res["content"].upper()))
+    trace.log("intention d'écriture", ecriture=yes, sortie_modele=res["content"].strip()[:40])
+    return yes
+
+
 def _answer_doc(question, trace):
     out = level1_rag.answer(question, trace)
     # retrieved / retrieved_ids ne sont pas renvoyés : Recall@5 et MRR restent ceux du niveau 1,
@@ -142,7 +158,10 @@ def answer(question, trace, confirm=None, context=None):
     final, pending = None, None
     # intention d'écriture : donnée par le routeur ; le regex ne sert que sans routage (comportement d'origine,
     # qui prenait « au programme » pour une écriture et ne reconnaissait pas « cale-moi »)
-    wants_write = choice == "ecriture" if AGENT_ROUTER else bool(WRITE_REQUEST.search(question))
+    if AGENT_ROUTER:
+        wants_write = choice == "ecriture" or write_intent(question, trace)
+    else:
+        wants_write = bool(WRITE_REQUEST.search(question))
     nudges = 0
     paces = []
 

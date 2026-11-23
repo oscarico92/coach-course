@@ -17,6 +17,7 @@ from src.tracing import Trace               # noqa: E402
 
 USE_REAL = "--vrais-outils" in sys.argv
 REAL_ROUTE = agent.route
+REAL_WRITE = agent.write_intent
 # RAG du niveau 1 simulé (routage et repli), pour ne jamais appeler Ollama
 agent.level1_rag.answer = lambda q, tr: {"answer": "Réponse [plan_10km_50min.md]", "sources": ["plan_10km_50min.md"],
                                          "abstained": False, "tool_calls": [], "retrieved": ["plan_10km_50min.md"],
@@ -69,6 +70,7 @@ def run(script, confirm=True, calendar=None, weather=None, question="test"):
     agent.chat = scripted_chat(script)
     # le routage est testé à part (tests 12 et suivants) ; ici, intention d'écriture simulée par le regex d'origine
     agent.route = lambda q, tr: "ecriture" if agent.WRITE_REQUEST.search(q) else "agent"
+    agent.write_intent = lambda q, tr: False
     out = agent.answer(question, Trace(2, question), confirm=lambda n, a: confirm,
                        context={"today": "2026-11-12", "weather": weather or {}, "calendar_path": path})
     if USE_REAL:
@@ -138,9 +140,12 @@ check("question après un refus : relance puis version conforme ajoutée", len(c
 # 12 à 14. routage : une question documentaire part vers le RAG du niveau 1, le reste vers la boucle
 
 
-def routed(router_reply, question="Quelle est la séance de la semaine 3 ?", loop=("Réponse de la boucle ?",)):
-    agent.chat = scripted_chat([router_reply, *loop])
-    agent.route = REAL_ROUTE
+def routed(router_reply, question="Quelle est la séance de la semaine 3 ?", loop=("Réponse de la boucle ?",),
+           write_reply="NON"):
+    # la question binaire d'écriture n'est posée que si le routeur n'a répondu ni DOC ni ECRITURE
+    extra = [] if router_reply in ("DOC", "ECRITURE") else [write_reply]
+    agent.chat = scripted_chat([router_reply, *extra, *loop])
+    agent.route, agent.write_intent = REAL_ROUTE, REAL_WRITE
     path = Path(tempfile.mkdtemp()) / "cal.ics"
     out = agent.answer(question, Trace(2, question), confirm=lambda n, a: True,
                        context={"today": "2026-11-12", "weather": {}, "calendar_path": path})
@@ -156,7 +161,7 @@ out, seen = routed("Je ne sais pas trop")
 check("routage illisible : boucle de l'agent par défaut", out["route"] == "agent")
 
 
-# 15 à 21. repli vers le RAG quand la boucle n'a appelé aucun outil
+# 15 à 22. repli vers le RAG quand la boucle n'a appelé aucun outil
 out, seen = routed("ACTION", loop=["JE NE SAIS PAS."])
 check("repli : aucun outil, réponse sans question -> RAG", out["route"] == "agent>doc"
       and out["sources"] == ["plan_10km_50min.md"] and "retrieved" not in out)
@@ -180,7 +185,11 @@ out, seen = routed("ACTION", question="Combien de km j'ai au programme ?",
 check("« au programme » classé ACTION : pas de relance d'écriture", not out["intention_ecriture"]
       and "pas encore appelé" not in str(seen))
 
-# 22 et 23. format des allures et écriture annoncée mais refusée
+out, seen = routed("ACTION", question="Calcule mon allure et cale un seuil jeudi.", write_reply="OUI",
+                   loop=["Fait.", "Fait.", "Fait."])
+check("ACTION + OUI à la question d'écriture : relance", out["intention_ecriture"] and "pas encore appelé" in str(seen))
+
+# 23 et 24. format des allures et écriture annoncée mais refusée
 out, cal, _ = run([[("calcul_allures", {"distance_test_m": 1450})], "Ton 400 m : 1 minute et 45 secondes."],
                   question="Allure ?")
 check("« 1 minute et 45 secondes » réécrit en 1:45", "1:45" in out["answer"] and "secondes" not in out["answer"])
@@ -188,5 +197,5 @@ out, cal, _ = run([[("ajouter_seances", {"seances": [S("2026-11-19", "seuil")]})
                   weather={"2026-11-19": {"tmax_c": 31, "vent_kmh": 10, "orage": False}}, question="Un seuil jeudi ?")
 check("refus non corrigé : la réponse rappelle que rien n'est écrit", cal == [] and "aucune séance n'a été enregistrée" in out["answer"])
 
-print(f"\n{ok}/23 tests réussis")
-sys.exit(0 if ok == 23 else 1)
+print(f"\n{ok}/24 tests réussis")
+sys.exit(0 if ok == 24 else 1)
