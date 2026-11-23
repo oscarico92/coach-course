@@ -10,6 +10,7 @@
   Raison : laissé libre de choisir, le modèle 7B appelait rarement rechercher_corpus (0 % de sources citées).
 - Repli (AGENT_FALLBACK=1) : si la boucle se termine sans aucun appel d'outil ni demande d'écriture, et que la
   réponse ne pose pas de question ou commence par « JE NE SAIS PAS », la question est repassée au RAG (« agent>doc »).
+  Si le RAG s'abstient aussi, la réponse de l'agent est conservée.
 """
 import json
 import re
@@ -190,7 +191,11 @@ def answer(question, trace, confirm=None, context=None):
     if (AGENT_FALLBACK and AGENT_ROUTER and final is not None and not calls and not wants_write
             and ("?" not in final or abstained_blind)):
         trace.log("repli", reason="aucun outil appelé : question repassée au RAG", reponse_agent=final[:200])
-        return {**_answer_doc(question, trace), "route": "agent>doc"}
+        doc = _answer_doc(question, trace)
+        if not doc["abstained"]:
+            return {**doc, "route": "agent>doc"}
+        # le RAG ne trouve rien non plus : on garde la réponse de l'agent (question de précision, refus…)
+        trace.log("repli annulé", reason="le RAG s'abstient aussi : réponse de l'agent conservée")
 
     if final is None:
         final = f"Je n'ai pas pu terminer la demande en {MAX_AGENT_STEPS} étapes."

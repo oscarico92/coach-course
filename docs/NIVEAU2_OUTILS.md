@@ -137,3 +137,10 @@ Run avec repli : exactitude doc 60 %, sources 48 %, un seul cas rattrapé. Sur l
   demandé) ; `calcul_allures` avec 90 min au lieu de 105 pour 1 h 45 (doc-011, 4:16 au lieu de 4:58) ; bonne réponse
   sans citation après `semaine_plan` ou `calcul_allures` (doc-010, doc-023) ; « 13.3 » au lieu de « 13,3 » (doc-015,
   contrôle par mots-clés sensible au séparateur décimal, non modifié pour ne pas changer la métrique après coup).
+
+### Repli sur abstention : mesure et ajustement
+
+Run suivant : exactitude doc 76 %, sources 68 %, abstention à tort 0 %, mais ambigus 100 % -> 80 % : amb-001
+(« C'est quoi la meilleure ? ») partait en repli, le RAG s'abstenait sans poser de question. Ajustement : le repli ne
+remplace la réponse de l'agent que si le RAG apporte une réponse ; sinon la réponse de l'agent est conservée.
+Règle trouvée en analysant l'échec d'amb-001 (à mentionner), mais indépendante de la formulation des questions.

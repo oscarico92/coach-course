@@ -155,7 +155,7 @@ out, seen = routed("Je ne sais pas trop")
 check("routage illisible : boucle de l'agent par défaut", out["route"] == "agent")
 
 
-# 15 à 19. repli vers le RAG quand la boucle n'a appelé aucun outil
+# 15 à 20. repli vers le RAG quand la boucle n'a appelé aucun outil
 out, seen = routed("ACTION", loop=["JE NE SAIS PAS."])
 check("repli : aucun outil, réponse sans question -> RAG", out["route"] == "agent>doc"
       and out["sources"] == ["plan_10km_50min.md"] and "retrieved" not in out)
@@ -163,10 +163,16 @@ out, seen = routed("ACTION", loop=["Quel plan suis-tu ?"])
 check("pas de repli : question de précision gardée", out["route"] == "agent" and out["answer"].endswith("?"))
 out, seen = routed("ACTION", loop=["Je ne sais pas. Quel plan suis-tu ?"])
 check("repli : abstention sans outil, même suivie d'une question -> RAG", out["route"] == "agent>doc")
+RAG_OK = agent.level1_rag.answer
+agent.level1_rag.answer = lambda q, tr: {**RAG_OK(q, tr), "answer": "JE NE SAIS PAS : rien.", "sources": [], "abstained": True}
+out, seen = routed("ACTION", loop=["Je ne sais pas. Tu parles de quoi ?"])
+check("repli annulé : le RAG s'abstient aussi, la question de l'agent est gardée",
+      out["route"] == "agent" and out["answer"] == "Je ne sais pas. Tu parles de quoi ?")
+agent.level1_rag.answer = RAG_OK
 out, seen = routed("ACTION", loop=[[("calcul_allures", {"vma_kmh": 15})], "Allures calculées."])
 check("pas de repli : un outil a été appelé", out["route"] == "agent")
 out, seen = routed("ACTION", question="Ajoute un footing jeudi.", loop=["Fait.", "Fait.", "Fait."])
 check("pas de repli : demande d'écriture", out["route"] == "agent")
 
-print(f"\n{ok}/19 tests réussis")
-sys.exit(0 if ok == 19 else 1)
+print(f"\n{ok}/20 tests réussis")
+sys.exit(0 if ok == 20 else 1)
