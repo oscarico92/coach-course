@@ -91,6 +91,18 @@ try:
 except RuntimeError as e:
     check("erreur 401 : exception claire", "401" in str(e))
 
+# 4. raisonnement : « none » imposé avec des outils, réglage de .env sinon
+llm.requests.post = post = fake_post([FakeResponse(200, ok_body), FakeResponse(200, ok_body), FakeResponse(200, ok_body)])
+llm.chat([{"role": "user", "content": "Q"}], tools=[{"type": "function", "function": {"name": "meteo"}}], model="gpt-6-luna")
+llm.OPENAI_REASONING_EFFORT = ""
+llm.chat([{"role": "user", "content": "Q"}], model="gpt-6-luna")
+llm.OPENAI_REASONING_EFFORT = "low"
+llm.chat([{"role": "user", "content": "Q"}], model="gpt-6-luna")
+check("avec outils : reasoning_effort « none » ; sans outils : absent par défaut, sinon valeur de .env",
+      post.sent[0]["json"].get("reasoning_effort") == "none" and "reasoning_effort" not in post.sent[1]["json"]
+      and post.sent[2]["json"].get("reasoning_effort") == "low")
+llm.OPENAI_REASONING_EFFORT = ""
+
 llm.OPENAI_API_KEY = ""
 try:
     llm.chat([{"role": "user", "content": "Q"}])

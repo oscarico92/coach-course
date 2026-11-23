@@ -17,12 +17,13 @@ import time
 import requests
 
 from config import (EMBED_MODEL, LLM_MODEL, LLM_PROVIDER, LLM_TEMPERATURE, OLLAMA_URL, OPENAI_API_KEY,
-                    OPENAI_URL)
+                    OPENAI_REASONING_EFFORT, OPENAI_URL)
 
 # Valeurs par défaut modifiables à l'exécution (eval.py --pass-k fait varier la graine et la température)
 TEMPERATURE = LLM_TEMPERATURE
 SEED = 0
-# Paramètres refusés par le modèle OpenAI (certains n'acceptent ni temperature ni seed) : retirés après un refus
+# Paramètres refusés par le modèle OpenAI (temperature, seed, ou reasoning_effort pour un modèle sans
+# raisonnement) : retirés après un refus
 # et signalés une fois, car les mesures ne sont alors plus faites à la température demandée.
 _UNSUPPORTED = set()
 
@@ -97,7 +98,11 @@ def _chat_openai(messages, tools, model, temperature, seed):
     payload = {"model": model, "messages": to_openai_messages(messages), "temperature": temperature, "seed": seed}
     if tools:
         payload["tools"] = tools
-    for _ in range(3):
+        # gpt-6-luna : « Function tools with reasoning_effort are not supported … set reasoning_effort to 'none' »
+        payload["reasoning_effort"] = "none"
+    elif OPENAI_REASONING_EFFORT:
+        payload["reasoning_effort"] = OPENAI_REASONING_EFFORT
+    for _ in range(4):
         sent = {k: v for k, v in payload.items() if k not in _UNSUPPORTED}
         r = requests.post(f"{OPENAI_URL}/chat/completions", json=sent, timeout=300,
                           headers={"Authorization": f"Bearer {OPENAI_API_KEY}"})
@@ -107,7 +112,7 @@ def _chat_openai(messages, tools, model, temperature, seed):
             except ValueError:
                 err = {}
             param = err.get("param")
-            if param in ("temperature", "seed") and param not in _UNSUPPORTED:
+            if param in ("temperature", "seed", "reasoning_effort") and param not in _UNSUPPORTED:
                 _UNSUPPORTED.add(param)
                 print(f"  [llm] {model} refuse « {param} » : paramètre retiré pour la suite ({err.get('message', '')[:120]})")
                 continue

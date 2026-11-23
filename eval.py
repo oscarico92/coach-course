@@ -270,7 +270,9 @@ def main():
             print("  Routage : " + ", ".join(f"{t} {c['doc']} doc / {c['agent']} agent / {c['agent>doc']} repli"
                                               for t, c in routing["par_type"].items()))
             print("  Écarts au routage attendu : " + (", ".join(routing["ecarts"]) or "aucun"))
-        if args.pass_k and getattr(get_level(n), "USES_TOOLS", False):
+        if args.pass_k and getattr(get_level(n), "USES_TOOLS", False) and summary["erreurs"]:
+            print(f"  pass^{args.pass_k} ignoré : {summary['erreurs']} erreur(s) au run principal, à corriger d'abord")
+        elif args.pass_k and getattr(get_level(n), "USES_TOOLS", False):
             summary["pass_k"] = pass_k(n, [c for c in tests if c["type"] == "task"], args.pass_k, args.pass_temp)
         table.append(summary)
 
