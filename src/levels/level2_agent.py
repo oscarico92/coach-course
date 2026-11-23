@@ -16,7 +16,7 @@ import json
 import re
 from datetime import date, timedelta
 
-from config import AGENT_FALLBACK, AGENT_ROUTER, CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
+from config import AGENT_AUTO_PROPOSITION, AGENT_FALLBACK, AGENT_ROUTER, CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
 from src import rules, tools
 from src.levels import level1_rag
 from src.llm import chat
@@ -67,6 +67,27 @@ Règles :
 - Ne pose une question que si la demande est vraiment impossible à interpréter. Un plan, une semaine ou un jour cités suffisent.
 - Si la réponse n'est ni dans les documents ni accessible par un outil, commence par « {ABSTAIN} ».
 - Pas d'avis médical. Réponds en français, de façon concise."""
+
+
+def _text_tool_calls(content):
+    """Appels d'outils écrits dans le texte au lieu du champ tool_calls (qwen2.5 via Ollama, parfois :
+    « {"name": "ajouter_seances", "arguments": {...}} »). Seuls les outils connus sont retenus."""
+    found, decoder, i = [], json.JSONDecoder(), 0
+    while (i := content.find("{", i)) != -1:
+        try:
+            obj, end = decoder.raw_decode(content, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(obj, dict) and obj.get("name") in tools.FUNCTIONS and isinstance(obj.get("arguments"), (dict, str)):
+            found.append({"function": {"name": obj["name"], "arguments": obj["arguments"]}})
+        i = end
+    return found
+
+
+def _describe(seances):
+    return "\n".join(f"- {JOURS[date.fromisoformat(x['date']).weekday()]} {x['date']} : {x.get('titre', x['type'])} "
+                     f"({x.get('km', 0):g} km)" for x in seances)
 
 
 def _always_yes(name, args):
@@ -164,6 +185,7 @@ def answer(question, trace, confirm=None, context=None):
         wants_write = bool(WRITE_REQUEST.search(question))
     nudges = 0
     paces = []
+    proposal, refusal = None, None   # dernière version conforme calculée par le code après un refus
 
     for step in range(MAX_AGENT_STEPS):
         if trace.total_tokens > MAX_AGENT_TOKENS:
@@ -171,11 +193,18 @@ def answer(question, trace, confirm=None, context=None):
             break
         res = chat(messages, tools=tools.SCHEMAS)
         trace.log_llm(res, note=f"étape {step + 1}")
+        if not res["tool_calls"] and (in_text := _text_tool_calls(res["content"])):
+            trace.log("appel d'outil lu dans le texte", outils=[c["function"]["name"] for c in in_text])
+            res = {**res, "tool_calls": in_text,
+                   "message": {"role": "assistant", "content": "", "tool_calls": in_text}}
         messages.append(res["message"])
         if not res["tool_calls"]:
             # question posée avant tout appel d'outil = demande de précision : on la laisse passer.
             # Après un appel d'outil, une question est une demande de confirmation, que le système gère lui-même.
             asks_user = "?" in res["content"] and not calls
+            if wants_write and AGENT_AUTO_PROPOSITION and proposal and not written and not pending:
+                final = res["content"].strip()   # le système appliquera la proposition après la boucle
+                break
             if wants_write and not asked_confirmation and not asks_user and nudges < 2:
                 nudges += 1
                 tried = any(c["name"] == "ajouter_seances" for c in calls)
@@ -200,6 +229,8 @@ def answer(question, trace, confirm=None, context=None):
                 asked_confirmation = asked_confirmation or bool(result.get("confirmation_demandee"))
                 if result.get("ajoutees"):
                     written += args.get("seances", [])
+                if result.get("proposition"):
+                    proposal, refusal = result["proposition"], result["violations"]
             if name == "rechercher_corpus" and not error:
                 sources_seen |= {e["source"] for e in result.get("extraits", [])}
             if name == "semaine_plan" and not error:
@@ -217,6 +248,28 @@ def answer(question, trace, confirm=None, context=None):
             break
     else:
         trace.log("stop", reason=f"limite de {MAX_AGENT_STEPS} étapes atteinte")
+
+    # Proposition appliquée par le système : le modèle a reçu une version conforme après un refus mais n'a pas
+    # rappelé ajouter_seances (il la recopiait dans sa réponse). Elle passe par les règles et la confirmation
+    # comme tout appel ; la réponse est rédigée par le code, avec les dates réelles.
+    if AGENT_AUTO_PROPOSITION and wants_write and proposal and not written and not pending:
+        args = {"seances": [dict(x) for x in proposal]}
+        result, error = _run_tool("ajouter_seances", args, ctx, confirm)
+        calls.append({"name": "ajouter_seances", "args": args, "error": error, "par_le_systeme": True})
+        trace.log_tool("ajouter_seances", args, result, error)
+        trace.log("proposition appliquée par le système", reponse_modele=(final or "")[:200])
+        asked_confirmation = asked_confirmation or bool(result.get("confirmation_demandee"))
+        motif = " ".join(v.split(",")[0].rstrip(".") + "." for v in refusal)
+        if result.get("en_attente_confirmation"):
+            pending = {"name": "ajouter_seances", "args": args}
+            final = (f"Ta demande ne respecte pas les règles du club ({motif}) Je propose à la place :\n"
+                     f"{_describe(args['seances'])}\n\nTu confirmes ?")
+        elif result.get("ajoutees"):
+            written += args["seances"]
+            final = (f"Ta demande ne respecte pas les règles du club ({motif}) Version conforme enregistrée :\n"
+                     f"{_describe(args['seances'])}")
+        elif not error and result.get("confirmation_demandee"):
+            final = f"Ta demande ne respecte pas les règles du club ({motif}) Tu as refusé la version proposée : rien n'a été écrit."
 
     # Repli vers le RAG : la boucle n'a appelé aucun outil et la demande n'est pas une écriture, et soit
     # la réponse ne pose pas de question de précision (réponse de mémoire), soit elle commence par une

@@ -129,12 +129,15 @@ out, cal, seen = run(["Je vais ajouter la séance.",
                      question="Ajoute un footing jeudi prochain.")
 check("annonce sans écriture : relance puis séance ajoutée", len(cal) == 1 and "pas encore appelé" in str(seen))
 # 11. question après un refus (« Voulez-vous de l'endurance ? ») : relance quand même
+# (sans application automatique de la proposition, pour tester la relance)
+agent.AGENT_AUTO_PROPOSITION = False
 out, cal, seen = run([[("ajouter_seances", {"seances": [S("2026-11-19", "seuil")]})],
                       "Il fera 31 °C. Voulez-vous de l'endurance à la place ?",
                       [("ajouter_seances", {"seances": [S("2026-11-19", "endurance")]})]],
                      weather={"2026-11-19": {"tmax_c": 31, "vent_kmh": 10, "orage": False}},
                      question="Mets une séance de seuil jeudi prochain.")
 check("question après un refus : relance puis version conforme ajoutée", len(cal) == 1 and cal[0]["type"] == "endurance")
+agent.AGENT_AUTO_PROPOSITION = True
 
 
 # 12 à 14. routage : une question documentaire part vers le RAG du niveau 1, le reste vers la boucle
@@ -228,5 +231,26 @@ out, cal, seen = run([[("ajouter_seances", {"seances": [{"jour": "jeudi", "titre
                      weather={"2026-11-19": hot}, question="Mets un seuil jeudi.")
 check("refus : la proposition calculée est renvoyée au modèle", "proposition" in str(seen) and "2026-11-20" in str(seen))
 
-print(f"\n{ok}/31 tests réussis")
-sys.exit(0 if ok == 31 else 1)
+
+# 32 à 36. appel d'outil écrit en texte, proposition appliquée par le système
+call = '{"name": "ajouter_seances", "arguments": {"seances": [{"date": "2026-11-17", "titre": "endurance", "type": "endurance", "km": 8}]}}'
+out, cal, seen = run(["ursal " + call], question="Ajoute un footing mardi.")
+check("appel d'outil écrit en texte : exécuté", len(cal) == 1 and cal[0]["date"] == "2026-11-17")
+seuil = [[("ajouter_seances", {"seances": [{"jour": "jeudi", "titre": "Seuil", "type": "seuil", "km": 8}]})],
+         "Voici la proposition : ```json [{\"jour\": \"vendredi\"}] ```"]
+out, cal, seen = run(seuil, weather={"2026-11-19": hot}, question="Mets un seuil jeudi prochain.")
+check("proposition recopiée en texte : appliquée par le système, réponse rédigée par le code",
+      len(cal) == 1 and cal[0]["date"] == "2026-11-20" and cal[0]["type"] == "seuil"
+      and "vendredi 2026-11-20" in out["answer"] and "json" not in out["answer"] and len(seen) == 2)
+out, cal, seen = run(seuil, weather={"2026-11-19": hot}, question="Mets un seuil jeudi prochain.", confirm=None)
+check("interface : la proposition attend la confirmation", cal == [] and out["pending_write"]
+      and out["pending_write"]["args"]["seances"][0]["date"] == "2026-11-20" and out["answer"].endswith("Tu confirmes ?"))
+out, cal, seen = run(seuil, weather={"2026-11-19": hot}, question="Mets un seuil jeudi prochain.", confirm=False)
+check("confirmation refusée : rien n'est écrit", cal == [] and "rien n'a été écrit" in out["answer"])
+agent.AGENT_AUTO_PROPOSITION = False
+out, cal, seen = run(seuil + ["Proposition.", "Proposition."], weather={"2026-11-19": hot}, question="Mets un seuil jeudi prochain.")
+check("AGENT_AUTO_PROPOSITION=0 : rien n'est appliqué par le système", cal == [])
+agent.AGENT_AUTO_PROPOSITION = True
+
+print(f"\n{ok}/36 tests réussis")
+sys.exit(0 if ok == 36 else 1)

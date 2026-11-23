@@ -199,3 +199,21 @@ task-h02 et task-008 réussissent. Reste à mesurer si le modèle la recopie vra
 
 **Choix non retenu.** Appliquer la proposition directement par le code (avec confirmation) rendrait le résultat
 indépendant du modèle, mais l'agent ne déciderait plus de rien : à discuter dans le rapport.
+
+### Mesure de la proposition et application par le système
+
+pass^3 : 65 % (11/17, vues 9/12, non vues 2/5) ; task-006 réussit désormais sur les 3 essais, task-005 et task-h02
+échouent encore. `diag_traces.py` montre pourquoi : le modèle **recopie la proposition dans sa réponse** (« voici la
+séance… exactement comme renvoyé par le système : ```json …``` ») au lieu de rappeler `ajouter_seances`, parfois avec
+une date fausse dans le texte. Autre défaut vu sur task-002 : un appel d'outil **écrit en texte**
+(`{"name": "ajouter_seances", "arguments": …}`), non reconnu par Ollama.
+
+Corrections :
+- un appel d'outil valide écrit dans le texte est exécuté comme un vrai appel (`_text_tool_calls`) ;
+- `AGENT_AUTO_PROPOSITION=1` (défaut) : si une proposition a été calculée et que le modèle termine sans rappeler l'outil,
+  le système l'applique (règles revérifiées, confirmation de l'utilisateur) et rédige la réponse lui-même avec les dates
+  réelles ; les relances vers la proposition sont supprimées (moins d'appels au modèle). `AGENT_AUTO_PROPOSITION=0`
+  rend le comportement précédent, pour mesurer l'écart.
+
+**Choix de conception à discuter dans le rapport** : avec l'option active, la correction d'un refus ne dépend plus du
+modèle. Le modèle comprend la demande et choisit les séances ; le code vérifie, corrige et écrit.
