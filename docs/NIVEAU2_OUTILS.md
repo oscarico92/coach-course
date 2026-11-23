@@ -164,3 +164,9 @@ Principe, comme pour les dates : le modèle recopie, le code calcule.
 non vues (`task-h06` et suivantes, écrites sans regarder le code) pour mesurer honnêtement la généralisation.
 
 **À surveiller.** Le prompt du routeur a changé (3 classes) : le routage des questions `doc-*` peut bouger.
+
+**Mesure (23/11/2026).** Questions doc : exactitude 92 % (égale au niveau 1), sources 80 %, ambigus 100 %.
+Tâches non vues 20 % -> 60 % (h03, h05), mais tâches vues 92 % -> 83 % : task-002 et task-012 (« calcule… **et
+ajoute**… ») n'étaient plus relancées, le routeur les classant sans doute en ACTION à cause du calcul (le regex
+les attrapait par « ajoute »). Correction : ECRITURE prioritaire quand la demande contient un ajout, même avec un
+calcul. `diag_taches.py` affiche désormais l'intention d'écriture retenue.

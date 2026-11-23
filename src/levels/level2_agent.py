@@ -79,6 +79,7 @@ Réponds par un seul mot : DOC, ECRITURE ou ACTION.
 DOC : demande d'information générale ou sur les documents du club (plans, règles, allures données par un plan,
 tests de VMA, définitions, conseils), sans calcul à partir de chiffres personnels et sans calendrier.
 ECRITURE : demande de placer, d'ajouter ou de planifier une ou plusieurs séances dans le calendrier.
+Prioritaire : si la demande contient un ajout au calendrier, réponds ECRITURE même si elle demande aussi un calcul.
 ACTION : tout le reste. Calcul à partir de chiffres personnels (ma VMA, mon temps visé, ma distance au test),
 lecture ou modification du calendrier, météo, demande vague ou incomplète, hors sujet ou médicale.
 
@@ -91,6 +92,7 @@ J'ai couru 2 800 m au test de Cooper, quelle est ma VMA ? -> ACTION
 Mets une sortie longue dimanche. -> ECRITURE
 Inscris-moi un footing de 40 minutes samedi. -> ECRITURE
 Bloque mes séances de la semaine 3 du plan 10 km. -> ECRITURE
+Avec 16 de VMA, donne-moi mes allures et inscris un seuil jeudi. -> ECRITURE
 Qu'est-ce que j'ai de prévu mardi ? -> ACTION
 Fais-moi un plan. -> ACTION
 Aide-moi pour dimanche. -> ACTION"""

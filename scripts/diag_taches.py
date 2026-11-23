@@ -31,7 +31,8 @@ for r in tasks:
         continue
     failed = [k for k, v in (s.get("checks") or {}).items() if not v]
     print(f"{case['id']}  {'NON VUE' if case.get('held_out') else 'vue'}  "
-          f"{'réussie' if s.get('success') else 'ÉCHEC'}  route={out.get('route')}")
+          f"{'réussie' if s.get('success') else 'ÉCHEC'}  route={out.get('route')}  "
+          f"intention d'écriture={out.get('intention_ecriture')}")
     print(f"    question : {case['question']}")
     print(f"    vérifications en échec : {', '.join(failed) or 'aucune'}")
     for c in out.get("tool_calls", []):
