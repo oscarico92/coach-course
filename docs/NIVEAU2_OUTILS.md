@@ -125,3 +125,15 @@ demande d'écriture, la question est repassée au RAG (route `agent>doc` dans le
 
 À vérifier après mesure : les refus `amb-004` et `amb-005` peuvent partir en repli ; ils restent corrects si le RAG
 s'abstient ou oriente vers un professionnel de santé.
+
+### Diagnostic des questions restées dans la boucle (`scripts/diag_routage.py`)
+
+Run avec repli : exactitude doc 60 %, sources 48 %, un seul cas rattrapé. Sur les 11 questions `doc-*` restées dans la boucle :
+
+- 5 sans outil, réponse « Je ne sais pas… ? » (doc-003, 004, 012, 019, 024) : le « ? » bloquait le repli. Corrigé :
+  une réponse sans outil qui commence par « JE NE SAIS PAS » est repassée au RAG, même avec une question.
+- 6 avec un outil mal choisi ou mal utilisé, non corrigés (limites du modèle 7B, à citer dans le rapport) :
+  `meteo` pour une question de règle (doc-018, doc-025, qui annonce même ajouter une séance alors qu'on ne lui a rien
+  demandé) ; `calcul_allures` avec 90 min au lieu de 105 pour 1 h 45 (doc-011, 4:16 au lieu de 4:58) ; bonne réponse
+  sans citation après `semaine_plan` ou `calcul_allures` (doc-010, doc-023) ; « 13.3 » au lieu de « 13,3 » (doc-015,
+  contrôle par mots-clés sensible au séparateur décimal, non modifié pour ne pas changer la métrique après coup).
