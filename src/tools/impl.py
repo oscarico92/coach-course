@@ -21,7 +21,30 @@ def _pace(kmh, km=1.0):
     return f"{m}:{s:02d}"
 
 
+DUREE_HMS = re.compile(r"^\s*(\d{1,2}):(\d{2}):(\d{2})\s*$")
+DUREE_H = re.compile(r"(\d{1,2})\s*(?:heures?|h)\s*(?:(\d{1,2})\s*(?:min(?:utes?)?)?)?", re.I)
+DUREE_MIN = re.compile(r"(\d{1,3})\s*(?:min(?:utes?)?|mn)\b", re.I)
+
+
+def duree_minutes(text):
+    """Convertit un temps écrit par l'utilisateur en minutes : « 1 h 50 », « 1h50 », « 3 heures 45 »,
+    « 50 min », « 50 minutes », « 1:50:00 ». Lève ValueError si le texte n'est pas reconnu."""
+    t = str(text).strip()
+    m = DUREE_HMS.match(t)
+    if m:
+        return int(m[1]) * 60 + int(m[2]) + int(m[3]) / 60
+    m = DUREE_H.search(t)
+    if m:
+        return int(m[1]) * 60 + int(m[2] or 0)
+    m = DUREE_MIN.search(t)
+    if m:
+        return int(m[1])
+    raise ValueError(f"Temps objectif non reconnu : « {text} ». Recopier le temps tel qu'écrit, ex. « 1 h 50 » ou « 50 min ».")
+
+
 def calcul_allures(args, ctx):
+    if args.get("temps_objectif"):    # texte recopié de la question : la conversion est faite par le code
+        args = {**args, "temps_objectif_min": duree_minutes(args["temps_objectif"])}
     vma = args.get("vma_kmh")
     cible = None
     if not vma and args.get("distance_test_m"):
@@ -37,12 +60,12 @@ def calcul_allures(args, ctx):
         if cible:
             return {"allure_cible": cible}
         raise ValueError("Il faut une VMA (vma_kmh), un test demi-Cooper (distance_test_m) "
-                         "ou un temps objectif avec sa distance (temps_objectif_min + distance_km).")
+                         "ou un temps objectif avec sa distance (temps_objectif + distance_km).")
 
     vma = round(float(vma), 1)
     if not 8 <= vma <= 25:
         raise ValueError(f"VMA de {vma} km/h peu plausible (attendu entre 8 et 25). "
-                         "Pour un temps objectif, passer temps_objectif_min et distance_km.")
+                         "Pour un temps objectif, passer temps_objectif et distance_km.")
     out = {"vma_kmh": vma,
            "allures": {zone: _pace(vma * p) for zone, p in ZONES.items()},
            "400 m à 95 % VMA": _pace(vma * 0.95, 0.4),

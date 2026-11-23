@@ -67,7 +67,8 @@ def run(script, confirm=True, calendar=None, weather=None, question="test"):
     if USE_REAL:
         tools.impl.init_calendrier(path, CAL[path])
     agent.chat = scripted_chat(script)
-    agent.route = lambda q, tr: "agent"      # le routage est testé à part (tests 12 à 14)
+    # le routage est testé à part (tests 12 et suivants) ; ici, intention d'écriture simulée par le regex d'origine
+    agent.route = lambda q, tr: "ecriture" if agent.WRITE_REQUEST.search(q) else "agent"
     out = agent.answer(question, Trace(2, question), confirm=lambda n, a: confirm,
                        context={"today": "2026-11-12", "weather": weather or {}, "calendar_path": path})
     if USE_REAL:
@@ -155,7 +156,7 @@ out, seen = routed("Je ne sais pas trop")
 check("routage illisible : boucle de l'agent par défaut", out["route"] == "agent")
 
 
-# 15 à 20. repli vers le RAG quand la boucle n'a appelé aucun outil
+# 15 à 21. repli vers le RAG quand la boucle n'a appelé aucun outil
 out, seen = routed("ACTION", loop=["JE NE SAIS PAS."])
 check("repli : aucun outil, réponse sans question -> RAG", out["route"] == "agent>doc"
       and out["sources"] == ["plan_10km_50min.md"] and "retrieved" not in out)
@@ -171,8 +172,21 @@ check("repli annulé : le RAG s'abstient aussi, la question de l'agent est gard�
 agent.level1_rag.answer = RAG_OK
 out, seen = routed("ACTION", loop=[[("calcul_allures", {"vma_kmh": 15})], "Allures calculées."])
 check("pas de repli : un outil a été appelé", out["route"] == "agent")
-out, seen = routed("ACTION", question="Ajoute un footing jeudi.", loop=["Fait.", "Fait.", "Fait."])
-check("pas de repli : demande d'écriture", out["route"] == "agent")
+out, seen = routed("ECRITURE", question="Cale-moi un footing jeudi.", loop=["Fait.", "Fait.", "Fait."])
+check("ECRITURE (sans verbe du regex) : relance, pas de repli", out["route"] == "agent" and out["intention_ecriture"]
+      and "pas encore appelé" in str(seen))
+out, seen = routed("ACTION", question="Combien de km j'ai au programme ?",
+                   loop=[[("lire_calendrier", {"date_debut": "2026-11-16", "date_fin": "2026-11-22"})], "Tu as 35 km."])
+check("« au programme » classé ACTION : pas de relance d'écriture", not out["intention_ecriture"]
+      and "pas encore appelé" not in str(seen))
 
-print(f"\n{ok}/20 tests réussis")
-sys.exit(0 if ok == 20 else 1)
+# 22 et 23. format des allures et écriture annoncée mais refusée
+out, cal, _ = run([[("calcul_allures", {"distance_test_m": 1450})], "Ton 400 m : 1 minute et 45 secondes."],
+                  question="Allure ?")
+check("« 1 minute et 45 secondes » réécrit en 1:45", "1:45" in out["answer"] and "secondes" not in out["answer"])
+out, cal, _ = run([[("ajouter_seances", {"seances": [S("2026-11-19", "seuil")]})], "Séance ajoutée samedi."],
+                  weather={"2026-11-19": {"tmax_c": 31, "vent_kmh": 10, "orage": False}}, question="Un seuil jeudi ?")
+check("refus non corrigé : la réponse rappelle que rien n'est écrit", cal == [] and "aucune séance n'a été enregistrée" in out["answer"])
+
+print(f"\n{ok}/23 tests réussis")
+sys.exit(0 if ok == 23 else 1)

@@ -144,3 +144,23 @@ Run suivant : exactitude doc 76 %, sources 68 %, abstention à tort 0 %, mais am
 (« C'est quoi la meilleure ? ») partait en repli, le RAG s'abstenait sans poser de question. Ajustement : le repli ne
 remplace la réponse de l'agent que si le RAG apporte une réponse ; sinon la réponse de l'agent est conservée.
 Règle trouvée en analysant l'échec d'amb-001 (à mentionner), mais indépendante de la formulation des questions.
+
+## Diagnostic des tâches et corrections (23/11/2026)
+
+Run de référence (routage + repli) : tâches vues 92 %, **non vues 20 %**. `scripts/diag_taches.py` :
+
+| Tâche | Cause | Correction |
+|---|---|---|
+| task-h01 « Cale-moi la semaine 2 » | non reconnue comme écriture par `WRITE_REQUEST` : pas de relance, séances listées mais pas ajoutées | intention d'écriture donnée par le routeur (classe `ECRITURE`), le regex ne sert plus que sans routage |
+| task-h05 « au programme » | prise pour une écriture : relance vers `ajouter_seances`, réponse (35 km) perdue | idem |
+| task-h03 « 1 h 50 » | `temps_objectif_min: 100` au lieu de 110 (même erreur que doc-011 : 90 au lieu de 105) | `calcul_allures` reçoit `temps_objectif` en texte recopié (« 1 h 50 ») et le code convertit (`duree_minutes`) |
+| task-007 | allure juste mais écrite « 1 minute et 45 secondes » | réécrite en « 1:45 » par le code |
+| task-h02 | séance refusée (météo), le modèle répond « Séance ajoutée » sans rien écrire | non corrigeable par le code ; la réponse rappelle désormais qu'aucune séance n'a été enregistrée |
+
+Principe, comme pour les dates : le modèle recopie, le code calcule.
+
+**Biais de mesure.** Ces corrections viennent de l'analyse de task-h01, h02, h03 et h05 : ces tâches ne sont plus
+« non vues ». Les exemples du routeur n'utilisent ni « cale » ni « programme », mais il faut de nouvelles tâches
+non vues (`task-h06` et suivantes, écrites sans regarder le code) pour mesurer honnêtement la généralisation.
+
+**À surveiller.** Le prompt du routeur a changé (3 classes) : le routage des questions `doc-*` peut bouger.

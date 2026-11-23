@@ -26,6 +26,7 @@ USES_TOOLS = True
 ABSTAIN = "JE NE SAIS PAS"
 CITATION = re.compile(r"\[([^\[\]]+?\.md)(?:#[^\]]*)?\]")
 WRITE_REQUEST = re.compile(r"\b(ajoute|ajouter|mets|mettre|prévois|planifie|programme)\b", re.I)
+MINSEC = re.compile(r"(\d{1,2})\s*minutes?\s*(?:et\s*)?(\d{1,2})\s*secondes?", re.I)
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
 
@@ -48,8 +49,8 @@ Jours à venir :
 
 Règles :
 - Plans et règles du club : utilise rechercher_corpus et cite le fichier entre crochets, ex. [plan_10km_50min.md].
-- Allure ou VMA : utilise calcul_allures, ne calcule jamais toi-même. Un temps objectif se passe en minutes
-  (1 h 45 = 105, 3 h 45 = 225) avec distance_km (10, 21.0975 ou 42.195). Recopie les allures et les temps obtenus
+- Allure ou VMA : utilise calcul_allures, ne calcule jamais toi-même. Un temps objectif se recopie tel
+  qu'écrit dans temps_objectif (ex. « 1 h 45 », « 50 min »), avec distance_km (10, 21.0975 ou 42.195). Recopie les allures et les temps obtenus
   exactement au format m:ss, par exemple « 4:27 min/km » ou « 1:45 » (jamais « 1 minute et 45 secondes »).
 - Lecture du calendrier : lire_calendrier. Pour compter des séances intenses, utilise le champ "intense".
 - Semaine d'un plan ou séance d'un plan (séance qualité, sortie longue... des plans 5km, 10km, semi, marathon) :
@@ -73,9 +74,11 @@ def _always_yes(name, args):
 
 
 # Exemples volontairement absents de data/tests.jsonl, pour ne pas régler le routeur sur le jeu de test.
-ROUTER_PROMPT = """Tu classes la demande d'un coureur adressée au coach d'un club. Réponds par un seul mot : DOC ou ACTION.
+ROUTER_PROMPT = """Tu classes la demande d'un coureur adressée au coach d'un club.
+Réponds par un seul mot : DOC, ECRITURE ou ACTION.
 DOC : demande d'information générale ou sur les documents du club (plans, règles, allures données par un plan,
 tests de VMA, définitions, conseils), sans calcul à partir de chiffres personnels et sans calendrier.
+ECRITURE : demande de placer, d'ajouter ou de planifier une ou plusieurs séances dans le calendrier.
 ACTION : tout le reste. Calcul à partir de chiffres personnels (ma VMA, mon temps visé, ma distance au test),
 lecture ou modification du calendrier, météo, demande vague ou incomplète, hors sujet ou médicale.
 
@@ -85,19 +88,26 @@ Que dit le club sur l'échauffement avant un fractionné ? -> DOC
 Quelle allure le plan 10 km donne-t-il pour les séances au seuil ? -> DOC
 Qu'est-ce qu'une sortie longue ? -> DOC
 J'ai couru 2 800 m au test de Cooper, quelle est ma VMA ? -> ACTION
-Mets une sortie longue dimanche. -> ACTION
+Mets une sortie longue dimanche. -> ECRITURE
+Inscris-moi un footing de 40 minutes samedi. -> ECRITURE
+Bloque mes séances de la semaine 3 du plan 10 km. -> ECRITURE
 Qu'est-ce que j'ai de prévu mardi ? -> ACTION
 Fais-moi un plan. -> ACTION
 Aide-moi pour dimanche. -> ACTION"""
 
 
 def route(question, trace):
-    """Renvoie "doc" ou "agent". En cas de réponse illisible, "agent" (comportement d'avant le routage)."""
+    """Renvoie "doc", "ecriture" ou "agent". En cas de réponse illisible, "agent" (comportement d'avant le routage)."""
     res = chat([{"role": "system", "content": ROUTER_PROMPT},
                 {"role": "user", "content": question}], temperature=0)
     trace.log_llm(res, note="routage")
     word = res["content"].upper()
-    choice = "doc" if re.search(r"\bDOC\b", word) and "ACTION" not in word else "agent"
+    if re.search(r"\bÉ?ECRITURE\b", word.replace("É", "E")):
+        choice = "ecriture"
+    elif re.search(r"\bDOC\b", word) and "ACTION" not in word:
+        choice = "doc"
+    else:
+        choice = "agent"
     trace.log("routage", choix=choice, sortie_modele=res["content"].strip()[:40])
     return choice
 
@@ -109,7 +119,7 @@ def _answer_doc(question, trace):
     out.pop("retrieved", None)
     out.pop("retrieved_ids", None)
     return {**out, "tool_calls": [], "written": [], "asked_confirmation": False,
-            "pending_write": None, "task_success": None, "route": "doc"}
+            "pending_write": None, "task_success": None, "route": "doc", "intention_ecriture": False}
 
 
 def answer(question, trace, confirm=None, context=None):
@@ -120,14 +130,17 @@ def answer(question, trace, confirm=None, context=None):
         ctx["today"] = date.fromisoformat(ctx["today"])
     confirm = confirm or _always_yes
 
-    if AGENT_ROUTER and route(question, trace) == "doc":
+    choice = route(question, trace) if AGENT_ROUTER else None
+    if choice == "doc":
         return _answer_doc(question, trace)
 
     messages = [{"role": "system", "content": system_prompt(ctx["today"])},
                 {"role": "user", "content": question}]
     calls, written, asked_confirmation, sources_seen = [], [], False, set()
     final, pending = None, None
-    wants_write = bool(WRITE_REQUEST.search(question))
+    # intention d'écriture : donnée par le routeur ; le regex ne sert que sans routage (comportement d'origine,
+    # qui prenait « au programme » pour une écriture et ne reconnaissait pas « cale-moi »)
+    wants_write = choice == "ecriture" if AGENT_ROUTER else bool(WRITE_REQUEST.search(question))
     nudges = 0
     paces = []
 
@@ -199,6 +212,10 @@ def answer(question, trace, confirm=None, context=None):
 
     if final is None:
         final = f"Je n'ai pas pu terminer la demande en {MAX_AGENT_STEPS} étapes."
+    final = MINSEC.sub(lambda m: f"{m[1]}:{int(m[2]):02d}", final)   # « 1 minute et 45 secondes » -> « 1:45 »
+    # le modèle peut annoncer « Séance ajoutée » alors que l'outil a refusé : l'état réel est rappelé par le code
+    if any(c["name"] == "ajouter_seances" for c in calls) and not written and not pending:
+        final += "\n\nNote : aucune séance n'a été enregistrée dans ton calendrier."
     for p in dict.fromkeys(paces):
         if p not in final:
             final += f"\n\nAllure cible : {p} min/km."
@@ -206,7 +223,7 @@ def answer(question, trace, confirm=None, context=None):
     return {"answer": final, "sources": cited, "abstained": final.upper().startswith(ABSTAIN),
             "tool_calls": calls, "written": written, "asked_confirmation": asked_confirmation,
             "pending_write": pending, "task_success": None,  # calculé par eval.py à partir de l'état final
-            "route": "agent"}
+            "route": "agent", "intention_ecriture": wants_write}
 
 
 def _run_tool(name, args, ctx, confirm):
