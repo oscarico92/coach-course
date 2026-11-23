@@ -13,7 +13,10 @@ RESULTS_DIR = ROOT / "results"
 CALENDAR_DIR = ROOT / "calendar"
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()   # ollama ou openai
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")                 # dans .env uniquement, jamais versionnée
+OPENAI_URL = os.getenv("OPENAI_URL", "https://api.openai.com/v1")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "10"))

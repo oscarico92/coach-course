@@ -26,6 +26,19 @@ construit en 4 niveaux comparés sur le même jeu de test.
    copy .env.example .env          # cp sous Linux/macOS
    ```
 
+### Modèle API (OpenAI)
+
+Pour utiliser le modèle fourni (`gpt-6-luna`) au lieu de qwen, dans `.env` (jamais versionné) :
+
+```
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-6-luna
+OPENAI_API_KEY=...
+```
+
+Les embeddings restent locaux (`bge-m3` via Ollama) : la recherche du RAG est la même pour les deux modèles.
+Le nom du modèle apparaît dans la colonne « Niveau » du tableau de `eval.py`.
+
 ## Utilisation
 
 ```bash

@@ -13,7 +13,7 @@ import json
 import statistics
 import unicodedata
 
-from config import TESTS_PATH, RESULTS_DIR, DATA_DIR
+from config import TESTS_PATH, RESULTS_DIR, DATA_DIR, LLM_MODEL
 from src.tracing import Trace
 from src.task_checks import check_task
 from src.levels import get_level, is_available, LEVEL_NAMES
@@ -140,7 +140,7 @@ def summarize(n, rows):
     task_rows = [r for r in rows if r["case"]["type"] == "task"]
     top = lambda t: [s["top_score"] for s in by(t) if "top_score" in s]
     return {
-        "niveau": f"{n} · {LEVEL_NAMES[n]}",
+        "niveau": f"{n} · {LEVEL_NAMES[n]} ({LLM_MODEL})",
         "recall@5": _rate([s.get("recall5") for s in docs]),
         "mrr": round(statistics.mean(s["rr"] for s in docs), 3) if docs and "rr" in docs[0] else None,
         "exactitude": _rate([s["correct"] for s in docs]),
