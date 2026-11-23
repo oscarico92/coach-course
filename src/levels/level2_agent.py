@@ -4,13 +4,18 @@
 - Erreurs d'outils (arguments invalides, exception) renvoyées au modèle pour qu'il se corrige.
 - Outils classés par effet (src/tools.EFFECTS) : un outil « write » n'est exécuté qu'après
   1) vérification des règles du club par du code (src/rules.py), 2) confirmation explicite de l'utilisateur.
+- Routage (AGENT_ROUTER=1) : un premier appel court classe la question. Une question documentaire
+  (plans, règles, définitions, sans calcul personnel ni calendrier) est traitée par la chaîne RAG du
+  niveau 1 : recherche systématique, citations, abstention par seuil. Le reste passe par la boucle.
+  Raison : laissé libre de choisir, le modèle 7B appelait rarement rechercher_corpus (0 % de sources citées).
 """
 import json
 import re
 from datetime import date, timedelta
 
-from config import CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
+from config import AGENT_ROUTER, CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
 from src import rules, tools
+from src.levels import level1_rag
 from src.llm import chat
 
 AVAILABLE = tools.ready()
@@ -64,6 +69,46 @@ def _always_yes(name, args):
     return True
 
 
+# Exemples volontairement absents de data/tests.jsonl, pour ne pas régler le routeur sur le jeu de test.
+ROUTER_PROMPT = """Tu classes la demande d'un coureur adressée au coach d'un club. Réponds par un seul mot : DOC ou ACTION.
+DOC : demande d'information générale ou sur les documents du club (plans, règles, allures données par un plan,
+tests de VMA, définitions, conseils), sans calcul à partir de chiffres personnels et sans calendrier.
+ACTION : tout le reste. Calcul à partir de chiffres personnels (ma VMA, mon temps visé, ma distance au test),
+lecture ou modification du calendrier, météo, demande vague ou incomplète, hors sujet ou médicale.
+
+Exemples :
+Combien de semaines dure le plan marathon du club ? -> DOC
+Que dit le club sur l'échauffement avant un fractionné ? -> DOC
+Quelle allure le plan 10 km donne-t-il pour les séances au seuil ? -> DOC
+Qu'est-ce qu'une sortie longue ? -> DOC
+J'ai couru 2 800 m au test de Cooper, quelle est ma VMA ? -> ACTION
+Mets une sortie longue dimanche. -> ACTION
+Qu'est-ce que j'ai de prévu mardi ? -> ACTION
+Fais-moi un plan. -> ACTION
+Aide-moi pour dimanche. -> ACTION"""
+
+
+def route(question, trace):
+    """Renvoie "doc" ou "agent". En cas de réponse illisible, "agent" (comportement d'avant le routage)."""
+    res = chat([{"role": "system", "content": ROUTER_PROMPT},
+                {"role": "user", "content": question}], temperature=0)
+    trace.log_llm(res, note="routage")
+    word = res["content"].upper()
+    choice = "doc" if re.search(r"\bDOC\b", word) and "ACTION" not in word else "agent"
+    trace.log("routage", choix=choice, sortie_modele=res["content"].strip()[:40])
+    return choice
+
+
+def _answer_doc(question, trace):
+    out = level1_rag.answer(question, trace)
+    # retrieved / retrieved_ids ne sont pas renvoyés : Recall@5 et MRR restent ceux du niveau 1,
+    # et ils ne seraient calculés ici que sur une partie des questions (celles routées vers le RAG)
+    out.pop("retrieved", None)
+    out.pop("retrieved_ids", None)
+    return {**out, "tool_calls": [], "written": [], "asked_confirmation": False,
+            "pending_write": None, "task_success": None, "route": "doc"}
+
+
 def answer(question, trace, confirm=None, context=None):
     """confirm(nom_outil, arguments) -> bool : demande à l'utilisateur (interface) ou réponse simulée (évaluation).
     context : {"today", "weather", "calendar_path"} ; valeurs par défaut pour un usage interactif."""
@@ -71,6 +116,9 @@ def answer(question, trace, confirm=None, context=None):
     if isinstance(ctx["today"], str):
         ctx["today"] = date.fromisoformat(ctx["today"])
     confirm = confirm or _always_yes
+
+    if AGENT_ROUTER and route(question, trace) == "doc":
+        return _answer_doc(question, trace)
 
     messages = [{"role": "system", "content": system_prompt(ctx["today"])},
                 {"role": "user", "content": question}]
@@ -141,7 +189,8 @@ def answer(question, trace, confirm=None, context=None):
     cited = [s for s in dict.fromkeys(CITATION.findall(final)) if s in sources_seen]
     return {"answer": final, "sources": cited, "abstained": final.upper().startswith(ABSTAIN),
             "tool_calls": calls, "written": written, "asked_confirmation": asked_confirmation,
-            "pending_write": pending, "task_success": None}  # calculé par eval.py à partir de l'état final
+            "pending_write": pending, "task_success": None,  # calculé par eval.py à partir de l'état final
+            "route": "agent"}
 
 
 def _run_tool(name, args, ctx, confirm):

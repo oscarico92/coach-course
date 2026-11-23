@@ -8,7 +8,7 @@ construit en 4 niveaux comparés sur le même jeu de test.
 |---|---|---|
 | 0 | LLM seul, prompt soigné | `src/levels/level0.py` |
 | 1 | RAG : recherche hybride (dense + BM25), citations, abstention | `src/levels/level1_rag.py` |
-| 2 | Agent outillé : allures, météo, calendrier .ics (écriture confirmée) | `src/levels/level2_agent.py` |
+| 2 | Agent outillé : routage (questions documentaires vers le RAG), allures, météo, calendrier .ics (écriture confirmée) | `src/levels/level2_agent.py` |
 | 3 | Extension (à définir d'après les défauts mesurés au niveau 2) | `src/levels/level3_ext.py` |
 
 ## Installation

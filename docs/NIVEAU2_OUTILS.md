@@ -77,3 +77,35 @@ python eval.py --levels 2
 - **Tests** : `tests/test_outils.py` (18 cas sur `calcul_allures` et `semaine_plan`) et 3 cas de relance dans `test_agent_loop.py` (11/11).
 
 Mesure après ces changements : tâches 12/12, cas ambigus `amb-*` au niveau 2 : 5/5.
+
+## Routage des questions documentaires (22/11/2026)
+
+**Constat.** Sur les 25 questions `doc-*`, le niveau 2 obtenait 24 à 28 % d'exactitude, 0 % de sources citées
+et 52 % d'abstentions à tort, contre 92 %, 92 % et 0 % au niveau 1. L'outil `rechercher_corpus` utilise pourtant
+la même recherche que le niveau 1. La différence : au niveau 1 la recherche est toujours faite, au niveau 2 le
+modèle doit décider de l'appeler, et avec 6 outils et un prompt centré sur le calendrier, `qwen2.5:7b` le faisait
+rarement (réponse de mémoire ou « JE NE SAIS PAS » sans chercher).
+
+**Correction.** Un premier appel court au modèle (`route`, température 0) classe la question :
+- `DOC` (information sur les plans, règles, définitions, sans calcul personnel ni calendrier) : chaîne RAG du
+  niveau 1 (recherche systématique, citations, abstention par seuil) ;
+- `ACTION` (calcul à partir de chiffres personnels, calendrier, météo, demande vague, hors sujet ou médicale) :
+  boucle de l'agent, inchangée. Une sortie illisible du routeur envoie aussi vers la boucle.
+
+Les exemples du prompt de routage ne viennent pas de `data/tests.jsonl` ; deux exemples trop proches de cas de test
+(`task-h03`, `amb-001`) ont été retirés pour ne pas biaiser la mesure des tâches non vues.
+
+**Coût.** Un appel LLM de plus par question (quelques centaines de tokens).
+
+**Mesurer.** `AGENT_ROUTER=0` rend le comportement d'avant. `eval.py` affiche le routage par type de question et les
+cas mal routés (attendu : `in_docs` et `absent` vers le RAG, `task` et `ambiguous` vers la boucle) ; le détail
+est aussi dans `results/summary.json` (clé `routage`) et dans `route` de `results/level2_raw.jsonl`.
+
+```bash
+AGENT_ROUTER=0 python eval.py --levels 2      # avant (sous Windows : set AGENT_ROUTER=0)
+python eval.py --levels 2                     # après
+```
+
+**Risque à surveiller.** Une tâche de calcul envoyée par erreur au RAG (ex. « je vise 1 h 50 au semi, quelle
+allure ? ») recevrait l'allure du plan 1 h 45 au lieu d'un calcul. Les écarts de routage sur les `task-*`
+sont donc le premier chiffre à regarder après la mesure.

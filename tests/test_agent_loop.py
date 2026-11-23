@@ -16,6 +16,7 @@ from src.levels import level2_agent as agent  # noqa: E402
 from src.tracing import Trace               # noqa: E402
 
 USE_REAL = "--vrais-outils" in sys.argv
+REAL_ROUTE = agent.route
 CAL = {}
 
 
@@ -62,6 +63,7 @@ def run(script, confirm=True, calendar=None, weather=None, question="test"):
     if USE_REAL:
         tools.impl.init_calendrier(path, CAL[path])
     agent.chat = scripted_chat(script)
+    agent.route = lambda q, tr: "agent"      # le routage est testé à part (tests 12 à 14)
     out = agent.answer(question, Trace(2, question), confirm=lambda n, a: confirm,
                        context={"today": "2026-11-12", "weather": weather or {}, "calendar_path": path})
     if USE_REAL:
@@ -127,5 +129,29 @@ out, cal, seen = run([[("ajouter_seances", {"seances": [S("2026-11-19", "seuil")
                      question="Mets une séance de seuil jeudi prochain.")
 check("question après un refus : relance puis version conforme ajoutée", len(cal) == 1 and cal[0]["type"] == "endurance")
 
-print(f"\n{ok}/11 tests réussis")
-sys.exit(0 if ok == 11 else 1)
+
+# 12 à 14. routage : une question documentaire part vers le RAG du niveau 1, le reste vers la boucle
+agent.level1_rag.answer = lambda q, tr: {"answer": "Réponse [plan_10km_50min.md]", "sources": ["plan_10km_50min.md"],
+                                         "abstained": False, "tool_calls": [], "retrieved": ["plan_10km_50min.md"],
+                                         "retrieved_ids": ["x"], "top_score": 0.7}
+
+
+def routed(router_reply, question="Quelle est la séance de la semaine 3 ?"):
+    agent.chat = scripted_chat([router_reply, "Réponse de la boucle."])
+    agent.route = REAL_ROUTE
+    path = Path(tempfile.mkdtemp()) / "cal.ics"
+    out = agent.answer(question, Trace(2, question), confirm=lambda n, a: True,
+                       context={"today": "2026-11-12", "weather": {}, "calendar_path": path})
+    return out, agent.chat.seen
+
+
+out, seen = routed("DOC")
+check("routage DOC : réponse du RAG, sources gardées, pas de Recall/MRR", out["route"] == "doc"
+      and out["sources"] == ["plan_10km_50min.md"] and "retrieved" not in out and len(seen) == 1)
+out, seen = routed("ACTION")
+check("routage ACTION : la boucle de l'agent répond", out["route"] == "agent" and out["answer"] == "Réponse de la boucle.")
+out, seen = routed("Je ne sais pas trop")
+check("routage illisible : boucle de l'agent par défaut", out["route"] == "agent")
+
+print(f"\n{ok}/14 tests réussis")
+sys.exit(0 if ok == 14 else 1)

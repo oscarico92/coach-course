@@ -161,6 +161,22 @@ def summarize(n, rows):
     }
 
 
+def routing_report(rows):
+    """Niveau 2 avec routage : vers quelle chaîne chaque type de question est parti (doc = RAG, agent = boucle).
+    Attendu : in_docs et absent vers doc, task et ambiguous vers agent. Les écarts sont listés par cas."""
+    routed = [r for r in rows if r["output"].get("route")]
+    if not routed:
+        return None
+    expected = {"in_docs": "doc", "absent": "doc", "task": "agent", "ambiguous": "agent"}
+    counts, errors = {}, []
+    for r in routed:
+        t, got = r["case"]["type"], r["output"]["route"]
+        counts.setdefault(t, {"doc": 0, "agent": 0})[got] += 1
+        if got != expected.get(t, got):
+            errors.append(f"{r['case']['id']}->{got}")
+    return {"par_type": counts, "ecarts": errors}
+
+
 def to_markdown(table):
     cols = [("niveau", "Niveau"), ("recall@5", "Recall@5"), ("mrr", "MRR"), ("exactitude", "Exactitude"),
             ("sources_citees", "Sources citées"), ("abstention", "Abstention"),
@@ -245,6 +261,12 @@ def main():
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
         summary = summarize(n, rows)
+        routing = routing_report(rows)
+        if routing:
+            summary["routage"] = routing
+            print("  Routage : " + ", ".join(f"{t} {c['doc']} doc / {c['agent']} agent"
+                                              for t, c in routing["par_type"].items()))
+            print("  Écarts au routage attendu : " + (", ".join(routing["ecarts"]) or "aucun"))
         if args.pass_k and getattr(get_level(n), "USES_TOOLS", False):
             summary["pass_k"] = pass_k(n, [c for c in tests if c["type"] == "task"], args.pass_k, args.pass_temp)
         table.append(summary)
