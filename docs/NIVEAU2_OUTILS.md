@@ -109,3 +109,19 @@ python eval.py --levels 2                     # après
 **Risque à surveiller.** Une tâche de calcul envoyée par erreur au RAG (ex. « je vise 1 h 50 au semi, quelle
 allure ? ») recevrait l'allure du plan 1 h 45 au lieu d'un calcul. Les écarts de routage sur les `task-*`
 sont donc le premier chiffre à regarder après la mesure.
+
+### Mesure du routage et repli vers le RAG (22/11/2026)
+
+Premier run avec routage (`qwen2.5:7b`) : exactitude doc 28 % -> 56 %, sources citées 0 % -> 44 %, abstention à tort
+52 % -> 24 %. Aucune tâche envoyée au RAG, mais 12 questions `doc-*` sur 25 restent dans la boucle : surtout des
+questions à la première personne (« je peux… ? », « ma sortie longue… ») et des questions sur une séance précise d'un plan.
+
+Les tâches passent toutes par la boucle, dont le code n'a pas changé, et pourtant : tâches vues 83 % -> 92 %, non vues
+40 % -> 20 %. Ollama n'est donc pas déterministe à température 0 ; un écart d'une tâche n'est pas un effet mesuré.
+
+Plutôt que de retoucher le prompt du routeur sur les cas qui échouent (ce serait régler le routeur sur le jeu de test),
+un repli structurel : si la boucle se termine **sans aucun appel d'outil**, sans question de précision (« ? ») et sans
+demande d'écriture, la question est repassée au RAG (route `agent>doc` dans les résultats). `AGENT_FALLBACK=0` le désactive.
+
+À vérifier après mesure : les refus `amb-004` et `amb-005` peuvent partir en repli ; ils restent corrects si le RAG
+s'abstient ou oriente vers un professionnel de santé.

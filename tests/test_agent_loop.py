@@ -17,6 +17,10 @@ from src.tracing import Trace               # noqa: E402
 
 USE_REAL = "--vrais-outils" in sys.argv
 REAL_ROUTE = agent.route
+# RAG du niveau 1 simulé (routage et repli), pour ne jamais appeler Ollama
+agent.level1_rag.answer = lambda q, tr: {"answer": "Réponse [plan_10km_50min.md]", "sources": ["plan_10km_50min.md"],
+                                         "abstained": False, "tool_calls": [], "retrieved": ["plan_10km_50min.md"],
+                                         "retrieved_ids": ["x"], "top_score": 0.7}
 CAL = {}
 
 
@@ -131,13 +135,10 @@ check("question après un refus : relance puis version conforme ajoutée", len(c
 
 
 # 12 à 14. routage : une question documentaire part vers le RAG du niveau 1, le reste vers la boucle
-agent.level1_rag.answer = lambda q, tr: {"answer": "Réponse [plan_10km_50min.md]", "sources": ["plan_10km_50min.md"],
-                                         "abstained": False, "tool_calls": [], "retrieved": ["plan_10km_50min.md"],
-                                         "retrieved_ids": ["x"], "top_score": 0.7}
 
 
-def routed(router_reply, question="Quelle est la séance de la semaine 3 ?"):
-    agent.chat = scripted_chat([router_reply, "Réponse de la boucle."])
+def routed(router_reply, question="Quelle est la séance de la semaine 3 ?", loop=("Réponse de la boucle ?",)):
+    agent.chat = scripted_chat([router_reply, *loop])
     agent.route = REAL_ROUTE
     path = Path(tempfile.mkdtemp()) / "cal.ics"
     out = agent.answer(question, Trace(2, question), confirm=lambda n, a: True,
@@ -149,9 +150,21 @@ out, seen = routed("DOC")
 check("routage DOC : réponse du RAG, sources gardées, pas de Recall/MRR", out["route"] == "doc"
       and out["sources"] == ["plan_10km_50min.md"] and "retrieved" not in out and len(seen) == 1)
 out, seen = routed("ACTION")
-check("routage ACTION : la boucle de l'agent répond", out["route"] == "agent" and out["answer"] == "Réponse de la boucle.")
+check("routage ACTION : la boucle de l'agent répond", out["route"] == "agent" and out["answer"] == "Réponse de la boucle ?")
 out, seen = routed("Je ne sais pas trop")
 check("routage illisible : boucle de l'agent par défaut", out["route"] == "agent")
 
-print(f"\n{ok}/14 tests réussis")
-sys.exit(0 if ok == 14 else 1)
+
+# 15 à 18. repli vers le RAG quand la boucle n'a appelé aucun outil
+out, seen = routed("ACTION", loop=["JE NE SAIS PAS."])
+check("repli : aucun outil, réponse sans question -> RAG", out["route"] == "agent>doc"
+      and out["sources"] == ["plan_10km_50min.md"] and "retrieved" not in out)
+out, seen = routed("ACTION", loop=["Quel plan suis-tu ?"])
+check("pas de repli : question de précision gardée", out["route"] == "agent" and out["answer"].endswith("?"))
+out, seen = routed("ACTION", loop=[[("calcul_allures", {"vma_kmh": 15})], "Allures calculées."])
+check("pas de repli : un outil a été appelé", out["route"] == "agent")
+out, seen = routed("ACTION", question="Ajoute un footing jeudi.", loop=["Fait.", "Fait.", "Fait."])
+check("pas de repli : demande d'écriture", out["route"] == "agent")
+
+print(f"\n{ok}/18 tests réussis")
+sys.exit(0 if ok == 18 else 1)

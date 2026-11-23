@@ -8,12 +8,14 @@
   (plans, règles, définitions, sans calcul personnel ni calendrier) est traitée par la chaîne RAG du
   niveau 1 : recherche systématique, citations, abstention par seuil. Le reste passe par la boucle.
   Raison : laissé libre de choisir, le modèle 7B appelait rarement rechercher_corpus (0 % de sources citées).
+- Repli (AGENT_FALLBACK=1) : si la boucle se termine sans aucun appel d'outil, sans question de précision et
+  sans demande d'écriture, la question est repassée au RAG (route « agent>doc »).
 """
 import json
 import re
 from datetime import date, timedelta
 
-from config import AGENT_ROUTER, CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
+from config import AGENT_FALLBACK, AGENT_ROUTER, CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
 from src import rules, tools
 from src.levels import level1_rag
 from src.llm import chat
@@ -180,6 +182,14 @@ def answer(question, trace, confirm=None, context=None):
             break
     else:
         trace.log("stop", reason=f"limite de {MAX_AGENT_STEPS} étapes atteinte")
+
+    # Repli vers le RAG : la boucle n'a appelé aucun outil, ne pose pas de question de précision et la demande
+    # n'est pas une écriture. La question ne demandait donc pas d'outil : c'est une question documentaire
+    # mal routée, à laquelle le modèle a répondu de mémoire ou s'est abstenu sans chercher.
+    if (AGENT_FALLBACK and AGENT_ROUTER and final is not None and not calls
+            and "?" not in final and not wants_write):
+        trace.log("repli", reason="aucun outil appelé : question repassée au RAG", reponse_agent=final[:200])
+        return {**_answer_doc(question, trace), "route": "agent>doc"}
 
     if final is None:
         final = f"Je n'ai pas pu terminer la demande en {MAX_AGENT_STEPS} étapes."

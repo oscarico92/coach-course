@@ -19,6 +19,7 @@ LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "10"))
 MAX_AGENT_TOKENS = int(os.getenv("MAX_AGENT_TOKENS", "20000"))
 AGENT_ROUTER = os.getenv("AGENT_ROUTER", "1") == "1"  # 0 : sans routage, pour mesurer avant / après
+AGENT_FALLBACK = os.getenv("AGENT_FALLBACK", "1") == "1"  # 0 : sans repli vers le RAG (actif seulement avec le routage)
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.45"))  # à régler avec les scores affichés par eval.py
 

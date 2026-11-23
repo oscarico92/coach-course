@@ -162,8 +162,9 @@ def summarize(n, rows):
 
 
 def routing_report(rows):
-    """Niveau 2 avec routage : vers quelle chaîne chaque type de question est parti (doc = RAG, agent = boucle).
-    Attendu : in_docs et absent vers doc, task et ambiguous vers agent. Les écarts sont listés par cas."""
+    """Niveau 2 avec routage : vers quelle chaîne chaque type de question est parti.
+    doc = RAG dès le routage, agent = boucle, agent>doc = boucle sans outil puis repli vers le RAG.
+    Attendu : in_docs et absent finissent au RAG, task et ambiguous dans la boucle. Les écarts sont listés par cas."""
     routed = [r for r in rows if r["output"].get("route")]
     if not routed:
         return None
@@ -171,8 +172,10 @@ def routing_report(rows):
     counts, errors = {}, []
     for r in routed:
         t, got = r["case"]["type"], r["output"]["route"]
-        counts.setdefault(t, {"doc": 0, "agent": 0})[got] += 1
-        if got != expected.get(t, got):
+        c = counts.setdefault(t, {"doc": 0, "agent": 0, "agent>doc": 0})
+        c[got] = c.get(got, 0) + 1
+        final = "doc" if got.endswith("doc") else "agent"
+        if final != expected.get(t, final):
             errors.append(f"{r['case']['id']}->{got}")
     return {"par_type": counts, "ecarts": errors}
 
@@ -264,7 +267,7 @@ def main():
         routing = routing_report(rows)
         if routing:
             summary["routage"] = routing
-            print("  Routage : " + ", ".join(f"{t} {c['doc']} doc / {c['agent']} agent"
+            print("  Routage : " + ", ".join(f"{t} {c['doc']} doc / {c['agent']} agent / {c['agent>doc']} repli"
                                               for t, c in routing["par_type"].items()))
             print("  Écarts au routage attendu : " + (", ".join(routing["ecarts"]) or "aucun"))
         if args.pass_k and getattr(get_level(n), "USES_TOOLS", False):
