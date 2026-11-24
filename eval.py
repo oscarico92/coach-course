@@ -6,13 +6,18 @@
     python eval.py --judge              # ajoute le juge LLM pour l'exactitude (plus lent)
     python eval.py --limit 5            # test rapide
     python eval.py --calibrate-judge    # accord juge / annotations humaines
+    python eval.py --rescore resultats_finaux/gpt-6-luna/results
+                                        # recalcule les scores d'un run archivé, sans rappeler les modèles
 
 Sorties : results/level{n}_raw.jsonl (réponses brutes), results/summary.json et results/summary.md (tableau).
 """
 import argparse
 import json
+import re
 import statistics
+import sys
 import unicodedata
+from pathlib import Path
 
 from config import TESTS_PATH, RESULTS_DIR, DATA_DIR, LLM_MODEL
 from src.tracing import Trace
@@ -23,9 +28,20 @@ REFUSAL_MARKERS = ["je ne sais pas", "je ne peux pas", "je ne suis pas en mesure
                    "medecin", "hors de mon domaine", "course a pied uniquement", "ne fait pas partie"]
 
 
+# Formats équivalents d'une même valeur (changement du 24/11/2026, voir data/TESTS.md) : une réponse juste
+# ne doit pas échouer pour son format. « 4 min 58 s », « 4'58 » et « 1 minute et 45 secondes » -> « 4:58 » ;
+# séparateur décimal « 13.3 » -> « 13,3 ». Appliqué à la réponse et aux mots attendus, pour tous les niveaux.
+PACE_MIN_S = re.compile(r"(\d{1,2})\s*(?:minutes?|min|mn)\s*(?:et\s*)?(\d{1,2})\s*(?:secondes?|sec|s)\b")
+PACE_QUOTE = re.compile(r"(\d{1,2})\s*['’]\s*(\d{2})(?!\d)")
+DECIMAL_DOT = re.compile(r"(?<=\d)\.(?=\d)")
+
+
 def norm(text):
     text = unicodedata.normalize("NFKD", (text or "").lower().replace(" ", " ").replace("\xa0", " "))
-    return "".join(c for c in text if not unicodedata.combining(c))
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = PACE_MIN_S.sub(lambda m: f"{m[1]}:{int(m[2]):02d}", text)
+    text = PACE_QUOTE.sub(lambda m: f"{m[1]}:{m[2]}", text)
+    return DECIMAL_DOT.sub(",", text)
 
 
 def load_tests(limit=None):
@@ -240,6 +256,34 @@ def pass_k(n, tasks, k, temperature):
     return round(sum(ok.values()) / len(ok), 3)
 
 
+def rescore(folder, levels, use_judge=False):
+    """Recalcule le tableau d'un run archivé à partir de ses réponses brutes (aucun appel aux modèles, sauf
+    --judge). Le pass^k n'est pas recalculable (essais non enregistrés) : il est repris du summary.json du dossier.
+    Écrit summary_rescore.json et summary_rescore.md dans le dossier."""
+    old = {}
+    if (folder / "summary.json").exists():
+        old = {row["niveau"].split(" · ")[0]: row for row in json.load(open(folder / "summary.json", encoding="utf-8"))}
+    table = []
+    for n in levels:
+        path = folder / f"level{n}_raw.jsonl"
+        if not path.exists():
+            continue
+        rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+        rows = score_rows(rows, use_judge=use_judge)
+        summary = summarize(n, rows)
+        prev = old.get(str(n), {})
+        summary["niveau"] = prev.get("niveau", summary["niveau"])   # nom du modèle du run d'origine
+        summary["pass_k"] = prev.get("pass_k")
+        table.append(summary)
+    if not table:
+        sys.exit(f"Aucun levelN_raw.jsonl dans {folder}")
+    json.dump(table, open(folder / "summary_rescore.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    md = to_markdown(table)
+    (folder / "summary_rescore.md").write_text(md + "\n", encoding="utf-8")
+    print(md)
+    print(f"\nÉcrit : {folder / 'summary_rescore.md'}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--levels", type=int, nargs="+", default=[0, 1, 2, 3])
@@ -249,11 +293,15 @@ def main():
     p.add_argument("--pass-k", type=int, default=3,
                    help="relance les tâches k fois (graines différentes) : une tâche compte si les k essais réussissent ; "
                         "0 pour ne pas le faire (3 par défaut, colonne pass^3 du tableau attendu)")
+    p.add_argument("--rescore", metavar="DOSSIER",
+                   help="recalcule les scores à partir des levelN_raw.jsonl d'un dossier (pass^k repris de son summary.json)")
     p.add_argument("--pass-temp", type=float, default=0.7,
                    help="température des essais pass^k (à 0, les essais seraient quasi identiques)")
     args = p.parse_args()
     if args.calibrate_judge:
         return calibrate_judge()
+    if args.rescore:
+        return rescore(Path(args.rescore), args.levels, args.judge)
 
     tests = load_tests(args.limit)
     table = []

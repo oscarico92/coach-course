@@ -55,3 +55,10 @@ le jeu de test mesure ce que le RAG et l'agent apportent. À mentionner dans le 
   des 12 tâches d'origine (semi en 1 h 50, VMA 13, orage, semaine 2 du plan semi, lecture du calendrier).
   Valeurs vérifiées par calcul : semi 1 h 50 = 110 / 21,0975 = 5:13 min/km ; seuil à 85 % de 13 km/h = 5:26 min/km ;
   calendrier 7 + 12 + 16 = 35 km en 3 séances. **Ne pas modifier le prompt en regardant ces 5 tâches.**
+
+- 24/11/2026 : contrôle par mots-clés insensible au format d'une même valeur (`norm` dans `eval.py`) : « 4 min 58 s »,
+  « 4'58 » et « 1 minute et 45 secondes » valent « 4:58 » ; « 13.3 » vaut « 13,3 ». Cause : doc-011 (gpt-6-luna,
+  niveau 3) répondait juste, « 4 min 58 s », et échouait faute de « 4:58 ». Les cas et les mots attendus ne changent
+  pas ; les runs archivés sont recalculés avec `python eval.py --rescore <dossier>`, sans rappeler les modèles.
+  Non modifié : une demande de précision n'est reconnue qu'à son « ? » (amb-003 demande une précision sans « ? »,
+  faux négatif signalé dans l'analyse des échecs).
