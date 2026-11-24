@@ -6,6 +6,18 @@ dans `NIVEAU2_OUTILS.md`.
 
 Chiffres relevés sur les sorties de `python eval.py` (tableau final de chaque run). « n/a » : métrique non applicable.
 
+> **Restructuration du 24/11 (après lecture de la consigne).** Le niveau 3 doit être une extension de la liste 2.4,
+> mesurée contre le niveau 2. Le routeur et le repli ont donc quitté le niveau 2 pour devenir l'extension
+> **multi-agents** (`src/levels/level3_ext.py`) : un orchestrateur confie la demande à un agent documentaire (chaîne
+> RAG) ou à un agent actions (boucle à outils du niveau 2), avec des rapports JSON. Le niveau 2 redevient l'agent
+> seul, avec la question OUI/NON d'intention d'écriture et la proposition appliquée par le système.
+> Les options `AGENT_ROUTER` et `AGENT_FALLBACK` n'existent plus.
+>
+> Correspondance avec les mesures ci-dessous : la configuration C est le niveau 3 actuel. La configuration D est
+> proche du niveau 2 actuel, sans être identique (D utilisait le regex d'origine pour l'intention d'écriture et
+> n'appliquait pas la proposition). **Le tableau final des niveaux 0 à 3 reste à mesurer** avec `python eval.py`,
+> pour chaque modèle (section 9).
+
 ## 1. Question posée
 
 Le niveau 2 (agent outillé) avec `qwen2.5:7b` faisait beaucoup moins bien que le niveau 1 (RAG) sur les questions
@@ -150,3 +162,14 @@ $env:AGENT_ROUTER = "0"; $env:AGENT_FALLBACK = "0"; $env:AGENT_AUTO_PROPOSITION 
 
 Les variables du terminal passent avant celles de `.env`. `results/summary.md` et `results/level2_raw.jsonl` sont
 écrasés à chaque run : les copier entre deux configurations.
+
+## 9. Mesures finales à faire (niveaux 0 à 3, deux modèles)
+
+| Run | Réglages | Commande |
+|---|---|---|
+| qwen2.5:7b | `LLM_PROVIDER=ollama`, `LLM_MODEL=qwen2.5:7b` | `python eval.py` |
+| gpt-6-luna | `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-6-luna`, `OPENAI_REASONING_EFFORT=none` | `python eval.py` |
+
+`python eval.py` lance les niveaux 0 à 3 et le pass^3 des niveaux 2 et 3. Avant chaque run, vider `traces/` ; après,
+copier `results/` et `traces/` dans un dossier propre au modèle, à versionner (la consigne demande les résultats bruts
+par niveau et les traces dans le dépôt).

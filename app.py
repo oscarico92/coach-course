@@ -3,7 +3,7 @@
 - choix du niveau 0 à 3 (seuls les niveaux disponibles sont proposés) ;
 - réponse, sources citées, durée, tokens, nombre d'étapes ;
 - trace de chaque exécution (étapes, outils, arguments) ;
-- niveau 2 : toute écriture dans le calendrier attend un clic « Confirmer » ou « Refuser ».
+- niveaux 2 et 3 : toute écriture dans le calendrier attend un clic « Confirmer » ou « Refuser ».
 """
 from datetime import date, timedelta
 
@@ -33,7 +33,8 @@ if missing:
 st.sidebar.markdown({0: "LLM seul, sans documents ni outils.",
                      1: "Recherche dans les documents du club, réponses sourcées.",
                      2: "Agent avec outils : allures, météo, calendrier (écriture confirmée).",
-                     3: "Extension."}.get(level, ""))
+                     3: "Multi-agents : un orchestrateur confie la demande à l'agent documentaire (RAG) "
+                        "ou à l'agent actions (outils), rapports JSON dans la trace."}.get(level, ""))
 
 
 def show_calendar():
@@ -95,8 +96,8 @@ if state.result:
                   for s in state.pending["args"]["seances"]])
         col_ok, col_no = st.columns(2)
         if col_ok.button("✅ Confirmer", type="primary"):
-            agent = get_level(2)
-            trace = Trace(level=2, question=f"[confirmation] {data['question']}")
+            agent = get_level(state.result["level"])
+            trace = Trace(level=state.result["level"], question=f"[confirmation] {data['question']}")
             result, error = agent.execute_confirmed(state.pending["args"], trace, context={"calendar_path": CAL_PATH})
             trace.close({"confirmation": "acceptée", "result": result, "error": error})
             if error:
@@ -108,7 +109,7 @@ if state.result:
             state.pending = None
             st.rerun()
         if col_no.button("❌ Refuser"):
-            trace = Trace(level=2, question=f"[refus] {data['question']}")
+            trace = Trace(level=state.result["level"], question=f"[refus] {data['question']}")
             trace.log("confirmation", decision="refusée par l'utilisateur")
             trace.close({"confirmation": "refusée"})
             state.decision = ("info", "Rien n'a été modifié.")

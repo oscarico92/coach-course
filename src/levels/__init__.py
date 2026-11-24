@@ -7,7 +7,7 @@ LEVELS = {
     3: "src.levels.level3_ext",
 }
 
-LEVEL_NAMES = {0: "LLM seul", 1: "RAG", 2: "Agent", 3: "Extension"}
+LEVEL_NAMES = {0: "LLM seul", 1: "RAG", 2: "Agent", 3: "Multi-agents"}
 
 
 def get_level(n):

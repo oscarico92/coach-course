@@ -1,6 +1,7 @@
 """Reproduit le tableau de résultats.
 
-    python eval.py                      # tous les niveaux disponibles
+    python eval.py                      # tous les niveaux disponibles, avec pass^3 (tableau du rapport)
+    python eval.py --pass-k 0           # sans pass^3 (plus rapide)
     python eval.py --levels 0 1         # niveaux choisis
     python eval.py --judge              # ajoute le juge LLM pour l'exactitude (plus lent)
     python eval.py --limit 5            # test rapide
@@ -162,8 +163,9 @@ def summarize(n, rows):
 
 
 def routing_report(rows):
-    """Niveau 2 avec routage : vers quelle chaîne chaque type de question est parti.
-    doc = RAG dès le routage, agent = boucle, agent>doc = boucle sans outil puis repli vers le RAG.
+    """Niveau 3 (multi-agents) : vers quel agent chaque type de question est parti.
+    doc = agent documentaire dès l'orchestrateur, agent = agent actions, agent>doc = agent actions sans outil
+    puis repli vers l'agent documentaire.
     Attendu : in_docs et absent finissent au RAG, task et ambiguous dans la boucle. Les écarts sont listés par cas."""
     routed = [r for r in rows if r["output"].get("route")]
     if not routed:
@@ -244,8 +246,9 @@ def main():
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--judge", action="store_true", help="exactitude vérifiée aussi par le juge LLM")
     p.add_argument("--calibrate-judge", action="store_true")
-    p.add_argument("--pass-k", type=int, default=0,
-                   help="relance les tâches k fois (graines différentes) : une tâche compte si les k essais réussissent")
+    p.add_argument("--pass-k", type=int, default=3,
+                   help="relance les tâches k fois (graines différentes) : une tâche compte si les k essais réussissent ; "
+                        "0 pour ne pas le faire (3 par défaut, colonne pass^3 du tableau attendu)")
     p.add_argument("--pass-temp", type=float, default=0.7,
                    help="température des essais pass^k (à 0, les essais seraient quasi identiques)")
     args = p.parse_args()

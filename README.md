@@ -8,8 +8,8 @@ construit en 4 niveaux comparés sur le même jeu de test.
 |---|---|---|
 | 0 | LLM seul, prompt soigné | `src/levels/level0.py` |
 | 1 | RAG : recherche hybride (dense + BM25), citations, abstention | `src/levels/level1_rag.py` |
-| 2 | Agent outillé : routage (questions documentaires vers le RAG), allures, météo, calendrier .ics (écriture confirmée) | `src/levels/level2_agent.py` |
-| 3 | Extension (à définir d'après les défauts mesurés au niveau 2) | `src/levels/level3_ext.py` |
+| 2 | Agent outillé (agent seul) : allures, météo, calendrier .ics (écriture confirmée), règles du club vérifiées par le code | `src/levels/level2_agent.py` |
+| 3 | Extension multi-agents : orchestrateur, agent documentaire (RAG) et agent actions (outils), rapports JSON | `src/levels/level3_ext.py` |
 
 ## Installation
 
@@ -42,7 +42,8 @@ Le nom du modèle apparaît dans la colonne « Niveau » du tableau de `eval.py`
 ## Utilisation
 
 ```bash
-python eval.py                     # tous les niveaux disponibles sur data/tests.jsonl
+python eval.py                     # tous les niveaux sur data/tests.jsonl, avec pass^3 (tableau du rapport)
+python eval.py --pass-k 0          # sans pass^3, plus rapide
 python eval.py --levels 0 --limit 5
 streamlit run app.py               # interface
 ```

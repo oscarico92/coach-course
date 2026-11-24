@@ -1,31 +1,28 @@
-"""Niveau 2 : agent outillé. Boucle écrite SANS framework (composant « fait main » exigé par le sujet).
+"""Niveau 2 : agent outillé (agent seul). Boucle écrite SANS framework (composant « fait main » exigé par le sujet).
 
 - Boucle bornée : MAX_AGENT_STEPS appels au LLM et MAX_AGENT_TOKENS tokens au plus.
 - Erreurs d'outils (arguments invalides, exception) renvoyées au modèle pour qu'il se corrige.
 - Outils classés par effet (src/tools.EFFECTS) : un outil « write » n'est exécuté qu'après
   1) vérification des règles du club par du code (src/rules.py), 2) confirmation explicite de l'utilisateur.
-- Routage (AGENT_ROUTER=1) : un premier appel court classe la question. Une question documentaire
-  (plans, règles, définitions, sans calcul personnel ni calendrier) est traitée par la chaîne RAG du
-  niveau 1 : recherche systématique, citations, abstention par seuil. Le reste passe par la boucle.
-  Raison : laissé libre de choisir, le modèle 7B appelait rarement rechercher_corpus (0 % de sources citées).
-- Repli (AGENT_FALLBACK=1) : si la boucle se termine sans aucun appel d'outil ni demande d'écriture, et que la
-  réponse ne pose pas de question ou commence par « JE NE SAIS PAS », la question est repassée au RAG (« agent>doc »).
-  Si le RAG s'abstient aussi, la réponse de l'agent est conservée.
+- Intention d'écriture : question OUI/NON au modèle (write_intent) ; si la demande est une écriture et que le
+  modèle s'arrête sans écrire, la boucle le relance (deux fois au plus).
+- Après un refus des règles, le code calcule une version conforme (_propose) ; si le modèle ne la reprend pas,
+  le système l'applique (AGENT_AUTO_PROPOSITION=1), toujours avec règles et confirmation.
+
+Le niveau 3 (src/levels/level3_ext.py) réutilise cette boucle comme « agent actions » sous un orchestrateur.
 """
 import json
 import re
 from datetime import date, timedelta
 
-from config import AGENT_AUTO_PROPOSITION, AGENT_FALLBACK, AGENT_ROUTER, CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
+from config import AGENT_AUTO_PROPOSITION, CALENDAR_DIR, MAX_AGENT_STEPS, MAX_AGENT_TOKENS
 from src import rules, tools
-from src.levels import level1_rag
 from src.llm import chat
 
 AVAILABLE = tools.ready()
 USES_TOOLS = True
 ABSTAIN = "JE NE SAIS PAS"
 CITATION = re.compile(r"\[([^\[\]]+?\.md)(?:#[^\]]*)?\]")
-WRITE_REQUEST = re.compile(r"\b(ajoute|ajouter|mets|mettre|prévois|planifie|programme)\b", re.I)
 MINSEC = re.compile(r"(\d{1,2})\s*minutes?\s*(?:et\s*)?(\d{1,2})\s*secondes?", re.I)
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
@@ -94,55 +91,14 @@ def _always_yes(name, args):
     return True
 
 
-# Exemples volontairement absents de data/tests.jsonl, pour ne pas régler le routeur sur le jeu de test.
-ROUTER_PROMPT = """Tu classes la demande d'un coureur adressée au coach d'un club.
-Réponds par un seul mot : DOC, ECRITURE ou ACTION.
-DOC : demande d'information générale ou sur les documents du club (plans, règles, allures données par un plan,
-tests de VMA, définitions, conseils), sans calcul à partir de chiffres personnels et sans calendrier.
-ECRITURE : demande de placer, d'ajouter ou de planifier une ou plusieurs séances dans le calendrier.
-Prioritaire : si la demande contient un ajout au calendrier, réponds ECRITURE même si elle demande aussi un calcul.
-ACTION : tout le reste. Calcul à partir de chiffres personnels (ma VMA, mon temps visé, ma distance au test),
-lecture ou modification du calendrier, météo, demande vague ou incomplète, hors sujet ou médicale.
-
-Exemples :
-Combien de semaines dure le plan marathon du club ? -> DOC
-Que dit le club sur l'échauffement avant un fractionné ? -> DOC
-Quelle allure le plan 10 km donne-t-il pour les séances au seuil ? -> DOC
-Qu'est-ce qu'une sortie longue ? -> DOC
-J'ai couru 2 800 m au test de Cooper, quelle est ma VMA ? -> ACTION
-Mets une sortie longue dimanche. -> ECRITURE
-Inscris-moi un footing de 40 minutes samedi. -> ECRITURE
-Bloque mes séances de la semaine 3 du plan 10 km. -> ECRITURE
-Avec 16 de VMA, donne-moi mes allures et inscris un seuil jeudi. -> ECRITURE
-Qu'est-ce que j'ai de prévu mardi ? -> ACTION
-Fais-moi un plan. -> ACTION
-Aide-moi pour dimanche. -> ACTION"""
-
-
-def route(question, trace):
-    """Renvoie "doc", "ecriture" ou "agent". En cas de réponse illisible, "agent" (comportement d'avant le routage)."""
-    res = chat([{"role": "system", "content": ROUTER_PROMPT},
-                {"role": "user", "content": question}], temperature=0)
-    trace.log_llm(res, note="routage")
-    word = res["content"].upper()
-    if re.search(r"\bÉ?ECRITURE\b", word.replace("É", "E")):
-        choice = "ecriture"
-    elif re.search(r"\bDOC\b", word) and "ACTION" not in word:
-        choice = "doc"
-    else:
-        choice = "agent"
-    trace.log("routage", choix=choice, sortie_modele=res["content"].strip()[:40])
-    return choice
-
-
 WRITE_PROMPT = """Réponds uniquement par OUI ou NON.
 La demande de l'utilisateur demande-t-elle d'ajouter, de placer ou de planifier des séances dans son calendrier,
 même si elle demande aussi autre chose (calcul d'allure, explication) ?"""
 
 
 def write_intent(question, trace):
-    """Question binaire posée quand le routeur a répondu ACTION : le routeur à 3 classes classait
-    « calcule mon allure et ajoute… » en ACTION malgré la consigne de priorité."""
+    """Intention d'écriture, question binaire sans exemples. Au niveau 3, posée seulement quand l'orchestrateur
+    répond ACTION : son routeur à 3 classes classait « calcule mon allure et ajoute… » en ACTION."""
     res = chat([{"role": "system", "content": WRITE_PROMPT},
                 {"role": "user", "content": question}], temperature=0)
     trace.log_llm(res, note="intention d'écriture")
@@ -151,38 +107,28 @@ def write_intent(question, trace):
     return yes
 
 
-def _answer_doc(question, trace):
-    out = level1_rag.answer(question, trace)
-    # retrieved / retrieved_ids ne sont pas renvoyés : Recall@5 et MRR restent ceux du niveau 1,
-    # et ils ne seraient calculés ici que sur une partie des questions (celles routées vers le RAG)
-    out.pop("retrieved", None)
-    out.pop("retrieved_ids", None)
-    return {**out, "tool_calls": [], "written": [], "asked_confirmation": False,
-            "pending_write": None, "task_success": None, "route": "doc", "intention_ecriture": False}
-
-
 def answer(question, trace, confirm=None, context=None):
     """confirm(nom_outil, arguments) -> bool : demande à l'utilisateur (interface) ou réponse simulée (évaluation).
     context : {"today", "weather", "calendar_path"} ; valeurs par défaut pour un usage interactif."""
+    return run_agent(question, trace, confirm, context)
+
+
+def run_agent(question, trace, confirm=None, context=None, wants_write=None):
+    """La boucle de l'agent. wants_write : intention d'écriture déjà connue (donnée par l'orchestrateur du
+    niveau 3) ; None = demandée au modèle par write_intent."""
     ctx = {"today": date.today(), "weather": None, "calendar_path": CALENDAR_DIR / "utilisateur.ics", **(context or {})}
     if isinstance(ctx["today"], str):
         ctx["today"] = date.fromisoformat(ctx["today"])
     confirm = confirm or _always_yes
 
-    choice = route(question, trace) if AGENT_ROUTER else None
-    if choice == "doc":
-        return _answer_doc(question, trace)
-
     messages = [{"role": "system", "content": system_prompt(ctx["today"])},
                 {"role": "user", "content": question}]
     calls, written, asked_confirmation, sources_seen = [], [], False, set()
     final, pending = None, None
-    # intention d'écriture : donnée par le routeur ; le regex ne sert que sans routage (comportement d'origine,
-    # qui prenait « au programme » pour une écriture et ne reconnaissait pas « cale-moi »)
-    if AGENT_ROUTER:
-        wants_write = choice == "ecriture" or write_intent(question, trace)
-    else:
-        wants_write = bool(WRITE_REQUEST.search(question))
+    # intention d'écriture : demandée au modèle (OUI/NON). Le regex d'origine prenait « au programme »
+    # pour une écriture et ne reconnaissait pas « cale-moi ».
+    if wants_write is None:
+        wants_write = write_intent(question, trace)
     nudges = 0
     paces = []
     proposal, refusal = None, None   # dernière version conforme calculée par le code après un refus
@@ -271,19 +217,6 @@ def answer(question, trace, confirm=None, context=None):
         elif not error and result.get("confirmation_demandee"):
             final = f"Ta demande ne respecte pas les règles du club ({motif}) Tu as refusé la version proposée : rien n'a été écrit."
 
-    # Repli vers le RAG : la boucle n'a appelé aucun outil et la demande n'est pas une écriture, et soit
-    # la réponse ne pose pas de question de précision (réponse de mémoire), soit elle commence par une
-    # abstention (« Je ne sais pas… pouvez-vous préciser ? » : abstention sans avoir cherché, pas une précision).
-    abstained_blind = final is not None and final.upper().startswith(ABSTAIN)
-    if (AGENT_FALLBACK and AGENT_ROUTER and final is not None and not calls and not wants_write
-            and ("?" not in final or abstained_blind)):
-        trace.log("repli", reason="aucun outil appelé : question repassée au RAG", reponse_agent=final[:200])
-        doc = _answer_doc(question, trace)
-        if not doc["abstained"]:
-            return {**doc, "route": "agent>doc"}
-        # le RAG ne trouve rien non plus : on garde la réponse de l'agent (question de précision, refus…)
-        trace.log("repli annulé", reason="le RAG s'abstient aussi : réponse de l'agent conservée")
-
     if final is None:
         final = f"Je n'ai pas pu terminer la demande en {MAX_AGENT_STEPS} étapes."
     final = MINSEC.sub(lambda m: f"{m[1]}:{int(m[2]):02d}", final)   # « 1 minute et 45 secondes » -> « 1:45 »
@@ -297,8 +230,7 @@ def answer(question, trace, confirm=None, context=None):
     return {"answer": final, "sources": cited, "abstained": final.upper().startswith(ABSTAIN),
             "tool_calls": calls, "written": written, "asked_confirmation": asked_confirmation,
             "pending_write": pending, "task_success": None,  # calculé par eval.py à partir de l'état final
-            # sans routeur (AGENT_ROUTER=0), pas de route : eval.py n'affiche alors pas de bilan de routage
-            "route": "agent" if AGENT_ROUTER else None, "intention_ecriture": wants_write}
+            "intention_ecriture": wants_write}
 
 
 def _run_tool(name, args, ctx, confirm):

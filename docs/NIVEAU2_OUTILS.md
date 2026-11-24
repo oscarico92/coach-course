@@ -217,3 +217,11 @@ Corrections :
 
 **Choix de conception à discuter dans le rapport** : avec l'option active, la correction d'un refus ne dépend plus du
 modèle. Le modèle comprend la demande et choisit les séances ; le code vérifie, corrige et écrit.
+
+## Restructuration en niveaux 2 et 3 (24/11/2026)
+
+Après lecture de la consigne (extension du niveau 3 à choisir dans la liste 2.4), le routeur, l'intention d'écriture
+de l'orchestrateur et le repli ont été déplacés dans `src/levels/level3_ext.py` (extension multi-agents). Le niveau 2
+est l'agent seul : intention d'écriture par `write_intent` (OUI/NON) au lieu du regex, proposition conforme calculée
+et appliquée par le système. `AGENT_ROUTER` et `AGENT_FALLBACK` sont supprimés ; les sections précédentes y font
+référence pour l'historique des mesures. Synthèse : `RESULTATS.md`.
