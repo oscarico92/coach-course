@@ -50,6 +50,11 @@ streamlit run app.py               # interface
 Résultats : `results/` (réponses brutes par niveau + tableau récapitulatif).
 Traces d'exécution : `traces/*.jsonl` (étapes, outils, arguments, tokens, durée).
 
+## Résultats
+
+Comparaison des niveaux, de l'architecture du niveau 2 et des modèles (qwen2.5:7b, gpt-6-luna) :
+[`docs/RESULTATS.md`](docs/RESULTATS.md).
+
 ## Arborescence
 
 ```
