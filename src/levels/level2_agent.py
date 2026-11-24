@@ -297,7 +297,8 @@ def answer(question, trace, confirm=None, context=None):
     return {"answer": final, "sources": cited, "abstained": final.upper().startswith(ABSTAIN),
             "tool_calls": calls, "written": written, "asked_confirmation": asked_confirmation,
             "pending_write": pending, "task_success": None,  # calculé par eval.py à partir de l'état final
-            "route": "agent", "intention_ecriture": wants_write}
+            # sans routeur (AGENT_ROUTER=0), pas de route : eval.py n'affiche alors pas de bilan de routage
+            "route": "agent" if AGENT_ROUTER else None, "intention_ecriture": wants_write}
 
 
 def _run_tool(name, args, ctx, confirm):
