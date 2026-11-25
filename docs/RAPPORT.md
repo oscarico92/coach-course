@@ -61,7 +61,7 @@ alternative (dense seul, autre découpage) n'a été mesurée.
 |---|---|---|
 | dates fausses (« mercredi 15 »), un vendredi pris pour un lundi | le modèle donne le jour, le code calcule la date (avec `semaine_plan` et la relance) | tâches 9/12 → 10/12 |
 | « 1 h 50 » converti en 100 min | le modèle recopie « 1 h 50 », le code convertit | task-h03 réussie |
-| après un refus des règles, correction proposée en texte | le code calcule une version conforme (autre jour, endurance, km réduits) | pass^3 59 % → 65 % |
+| après un refus des règles, correction recopiée en texte au lieu d'être exécutée | le code calcule une version conforme (autre jour, endurance, km réduits) et l'applique si le modèle ne le fait pas, avec confirmation | pass^3 qwen 59 % → 76 % (niveaux 2 et 3, seule l'option change) |
 | « au programme » pris pour une écriture, « cale-moi » non reconnu (regex) | intention d'écriture demandée au modèle (classe ECRITURE, puis OUI/NON) | task-h01, task-h05 réussies (run unique) |
 
 Le même bug de regex fait échouer task-h05 avec gpt-6-luna (pass^3 94 % au lieu de 100 %) : un défaut du code
@@ -80,18 +80,17 @@ calibré sur 20 cas annotés : [À COMPLÉTER : accord juge / humain, `python ev
 
 | Niveau | Modèle | Exactitude | Sources citées | Abstention | Abst. à tort | Ambigus | Tâches vues / non vues\* | pass^3 | Tokens / req. | Latence |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 0 · LLM seul | qwen2.5:7b | 8 % | 0 % | 100 % | 44 % | 80 % | n/a | n/a | 312 | 14,6 s |
+| 0 · LLM seul | qwen2.5:7b | 8 % | 0 % | 100 % | 44 % | 80 % | n/a | n/a | 312 | 15,0 s |
 | | gpt-6-luna | 16 % | 0 % | 80 % | 28 % | 60 % | n/a | n/a | 245 | 1,7 s |
-| 1 · RAG | qwen2.5:7b | 100 % | 96 % | 100 % | 0 % | 60 % | n/a | n/a | 1 178 | 19,2 s |
+| 1 · RAG | qwen2.5:7b | 100 % | 96 % | 100 % | 0 % | 60 % | n/a | n/a | 1 178 | 18,7 s |
 | | gpt-6-luna | 96 % | 100 % | 100 % | 0 % | 80 % | n/a | n/a | 1 024 | 3,4 s |
-| 2 · Agent | qwen2.5:7b | 20 % | 0 % | 80 % | 60 % | 100 % | [À COMPLÉTER]\*\* | [À COMPLÉTER]\*\* | 4 191 | 27,7 s |
+| 2 · Agent | qwen2.5:7b | 20 % | 0 % | 80 % | 60 % | 100 % | 92 % / 100 % | 76 % | 3 772 | 23,6 s |
 | | gpt-6-luna | 100 % | 100 % | 100 % | 0 % | 60 % | 100 % / 100 % | 100 % | 5 155 | 5,8 s |
-| 3 · Multi-agents | qwen2.5:7b | 92 % | 80 % | 100 % | 0 % | 100 % | [À COMPLÉTER]\*\* | [À COMPLÉTER]\*\* | 4 092 | 26,2 s |
+| 3 · Multi-agents | qwen2.5:7b | 92 % | 80 % | 100 % | 0 % | 100 % | 92 % / 100 % | 76 % | 3 673 | 23,3 s |
 | | gpt-6-luna | 96 % | 100 % | 100 % | 0 % | 60 % | 100 % / 100 % | 100 % | 4 106 | 5,5 s |
 
 Recall@5 = 100 % et MRR = 0,89 pour les deux modèles (même recherche). \* Tâches « non vues » contaminées (section
-6). \*\* Run qwen à refaire : l'application de la version conforme était désactivée (75 % / 100 % et pass^3 59 % sans
-elle).
+6).
 
 **Lecture.**
 - **Le RAG fait l'essentiel sur les questions documentaires** (8 à 16 % → 96 à 100 %), quel que soit le modèle.
@@ -112,8 +111,9 @@ modèle face à 6 outils et à un prompt centré sur le calendrier. Correction :
 prochain », avec 31 °C prévus jeudi. La règle R5 refuse, le code propose vendredi ; qwen répond « Je rappelle l'ajout
 de la séance de seuil sur vendredi 2026-11-20… » sans rappeler l'outil : rien n'est écrit. Sur task-h02, avant la
 proposition calculée, il annonçait même « Séance ajoutée… samedi 2026-11-18 » (un mercredi) sans rien écrire. Correction :
-application de la proposition par le système, toujours soumise à la confirmation. [À COMPLÉTER : effet mesuré
-après le nouveau run qwen.]
+application de la proposition par le système, toujours soumise à la confirmation. Mesure, même code avec l'option
+désactivée puis activée : task-005 et task-h02 réussissent sur les 3 essais, pass^3 de qwen 59 % → 76 % (niveaux 2
+et 3). Avec gpt-6-luna, l'option ne sert jamais : il rappelle l'outil de lui-même.
 
 **3. L'outil cru contre l'utilisateur (gpt-6-luna, niveau 3, doc-018).** « Il fera 30 °C demain, je peux faire ma
 séance de seuil ? » → l'agent appelle `meteo` (15 °C dans l'évaluation) et répond « Tu peux donc faire ta séance de
@@ -135,16 +135,16 @@ rendre le critère flou.
 
 ## 6. Limites et coût
 
-**Coût.** Un agent consomme 4 à 5 fois les tokens du RAG (4 100 à 5 200 contre 1 000 à 1 200 par requête) ; le
-pass^3 relance 3 fois les 17 tâches. qwen2.5:7b est gratuit mais lent en local (15 à 28 s par requête, latence
-dépendante de la charge de la machine : 5,1 s puis 14,6 s au niveau 0 pour le même code) ; gpt-6-luna répond en 2 à
+**Coût.** Un agent consomme 3 à 5 fois les tokens du RAG (3 700 à 5 200 contre 1 000 à 1 200 par requête) ; le
+pass^3 relance 3 fois les 17 tâches. qwen2.5:7b est gratuit mais lent en local (15 à 24 s par requête, latence
+dépendante de la charge de la machine : 5,1 s puis 15,0 s au niveau 0 pour le même code) ; gpt-6-luna répond en 2 à
 6 s mais il est facturé. Le niveau 3 économise 20 % des tokens avec gpt-6-luna.
 
 **Limites.**
 - Tâches « non vues » contaminées : task-h01 à h05 ont servi à corriger le niveau 2. De nouvelles tâches seraient
   nécessaires pour mesurer la généralisation. [À COMPLÉTER si de nouvelles tâches sont ajoutées.]
-- Un run par configuration pour les questions et un pass^3 par niveau ; pour qwen, deux pass^3 de configurations
-  proches ont donné 65 % puis 59 %.
+- Un run par configuration pour les questions et un pass^3 par niveau (17 tâches : une tâche vaut 6 points). Pour
+  qwen, les tâches en échec changent d'un run à l'autre (task-009, 011, 012 et h05 au dernier).
 - Deux corrections de la métrique ont été faites après avoir vu des résultats ; elles sont datées et appliquées à
   tous les niveaux et aux deux modèles.
 - gpt-6-luna tourne sans raisonnement (`reasoning_effort: none`, imposé avec des outils sur l'API utilisée).

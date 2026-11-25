@@ -56,6 +56,15 @@ Traces d'exécution : `traces/*.jsonl` (étapes, outils, arguments, tokens, dur�
 Comparaison des niveaux, de l'architecture du niveau 2 et des modèles (qwen2.5:7b, gpt-6-luna) :
 [`docs/RESULTATS.md`](docs/RESULTATS.md).
 
+Le tableau du rapport compte deux runs de `python eval.py`, un par modèle :
+
+| Modèle | Réglages (`.env`) | Résultats bruts et traces |
+|---|---|---|
+| qwen2.5:7b (défaut) | `LLM_PROVIDER=ollama`, `LLM_MODEL=qwen2.5:7b` | `resultats_finaux/qwen2.5-7b/` |
+| gpt-6-luna | `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-6-luna`, `OPENAI_REASONING_EFFORT=none`, `OPENAI_API_KEY` | `resultats_finaux/gpt-6-luna/` |
+
+`python eval.py --rescore <dossier>` recalcule un tableau archivé sans rappeler les modèles.
+
 ## Arborescence
 
 ```

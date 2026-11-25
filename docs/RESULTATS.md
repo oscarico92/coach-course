@@ -27,10 +27,10 @@ Une seule commande, `python eval.py`, pour chaque modèle ; métrique du 24/11 (
 
 | Niveau | Recall@5 | MRR | Exactitude | Sources citées | Abstention | Abst. à tort | Ambigus OK | Tâches vues | Tâches non vues\* | pass^3 | Tokens / req. | Latence |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0 · LLM seul | n/a | n/a | 8 % | 0 % | 100 % | 44 % | 80 % | n/a | n/a | n/a | 312 | 14,6 s |
-| 1 · RAG | 100 % | 0,89 | 100 % | 96 % | 100 % | 0 % | 60 % | n/a | n/a | n/a | 1 178 | 19,2 s |
-| 2 · Agent | n/a | n/a | 20 % | 0 % | 80 % | 60 % | 100 % | 75 % | 100 % | 59 % | 4 191 | 27,7 s |
-| 3 · Multi-agents | n/a | n/a | 92 % | 80 % | 100 % | 0 % | 100 % | 75 % | 100 % | 59 % | 4 092 | 26,2 s |
+| 0 · LLM seul | n/a | n/a | 8 % | 0 % | 100 % | 44 % | 80 % | n/a | n/a | n/a | 312 | 15,0 s |
+| 1 · RAG | 100 % | 0,89 | 100 % | 96 % | 100 % | 0 % | 60 % | n/a | n/a | n/a | 1 178 | 18,7 s |
+| 2 · Agent | n/a | n/a | 20 % | 0 % | 80 % | 60 % | 100 % | 92 % | 100 % | 76 % | 3 772 | 23,6 s |
+| 3 · Multi-agents | n/a | n/a | 92 % | 80 % | 100 % | 0 % | 100 % | 92 % | 100 % | 76 % | 3 673 | 23,3 s |
 
 **gpt-6-luna** (API OpenAI, `OPENAI_REASONING_EFFORT=none`) : `resultats_finaux/gpt-6-luna/results/summary_rescore.md`
 (run du 24/11 recalculé avec la métrique du 24/11 par `python eval.py --rescore`, sans nouvel appel au modèle)
@@ -52,19 +52,24 @@ Une seule commande, `python eval.py`, pour chaque modèle ; métrique du 24/11 (
 | Sources citées | 0 % → 80 % | 100 % → 100 % |
 | Abstention / à tort | 80 % / 60 % → 100 % / 0 % | 100 % / 0 % → 100 % / 0 % |
 | Ambigus OK | 100 % → 100 % | 60 % → 60 % |
-| pass^3 | 59 % → 59 % | 100 % → 100 % |
-| Tokens / requête | 4 191 → 4 092 (−2 %) | 5 155 → 4 106 (**−20 %**) |
-| Latence | 27,7 s → 26,2 s | 5,8 s → 5,5 s |
+| pass^3 | 76 % → 76 % | 100 % → 100 % |
+| Tokens / requête | 3 772 → 3 673 (−3 %) | 5 155 → 4 106 (**−20 %**) |
+| Latence | 23,6 s → 23,3 s | 5,8 s → 5,5 s |
 
 **Lecture.** L'extension corrige le défaut mesuré au niveau 2 avec le petit modèle : seul, qwen2.5:7b n'utilise
 presque pas ses documents (20 %, aucune source citée, 60 % d'abstentions à tort) ; l'orchestrateur, en confiant ces
 questions à l'agent documentaire, le ramène à 92 %. Avec gpt-6-luna, qui sait déjà chercher seul, elle n'apporte rien
 en qualité (un cas perdu) et sert surtout à réduire le coût (−20 % de tokens). Elle ne change pas les tâches : elles
-passent par le même agent actions, et leur plafond est celui du modèle (pass^3 59 % contre 100 %).
+passent par le même agent actions, et leur plafond est celui du modèle (pass^3 76 % contre 100 %).
+
+**Proposition appliquée par le système (qwen2.5:7b).** Un premier run final avait tourné avec
+`AGENT_AUTO_PROPOSITION=0` par erreur : tâches vues 75 %, pass^3 59 % aux niveaux 2 et 3. Relancé avec l'option
+active (seule différence), tâches vues 92 % et pass^3 76 % : task-005 et task-h02 réussissent sur les 3 essais.
+Avec gpt-6-luna, l'option ne se déclenche jamais (il rappelle l'outil de lui-même).
 
 **Autres constats.** Le RAG (niveau 1) ne dépend presque pas du modèle (100 % et 96 %) : la recherche fait le
 travail. Le modèle seul (niveau 0) ne connaît pas les documents du club (8 % et 16 %). La latence de qwen dépend de
-la charge de la machine (niveau 0 : 5,1 s au premier run, 14,6 s ici, code identique) : à comparer à l'intérieur
+la charge de la machine (niveau 0 : 5,1 s au premier run, 15,0 s ici, code identique) : à comparer à l'intérieur
 d'un même run.
 
 ## 1. Question posée
@@ -183,9 +188,7 @@ conversion des temps, règles du club, version conforme après un refus).
 - **Un run par configuration** pour les questions documentaires et les cas ambigus. Avec qwen, un écart d'un cas
   entre deux runs identiques a été observé ; avec gpt-6-luna, le RAG varie de 88 % à 92 % sur trois runs.
 - **Un seul pass^3 par configuration** : sur 17 tâches, une tâche vaut 6 points.
-  Pour qwen2.5:7b, deux pass^3 de configurations proches ont donné 65 % puis 59 %, avec des tâches en échec
-  différentes ; l'application automatique de la proposition n'a pas fait réussir task-005 ni task-h02 avec qwen
-  (cause non analysée).
+  Pour qwen2.5:7b, les tâches en échec changent d'un pass^3 à l'autre (task-009, 011, 012 et h05 au dernier run).
 - **Ablation partielle (configuration D).** Elle ne retire que le routeur, le repli et l'application automatique de
   la proposition. Les améliorations des outils restent actives : conversion des temps par le code, proposition
   renvoyée dans le refus, lecture des appels d'outils écrits en texte, réécriture « 1 minute et 45 secondes ».
