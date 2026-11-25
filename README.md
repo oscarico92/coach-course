@@ -48,6 +48,15 @@ python eval.py --levels 0 --limit 5
 streamlit run app.py               # interface
 ```
 
+Interface : conversation (historique de la session, « Régénérer »), choix du modèle et du niveau (3 par défaut),
+confirmation de chaque ajout au calendrier, trace de chaque réponse, export du calendrier en .ics et prévisions
+Open-Meteo à 7 jours. Option « Questions de suivi » : la question est réécrite en question autonome à partir des
+derniers échanges (`src/conversation.py`) avant d'être passée au niveau, qui reste inchangé ; non mesurée par
+`eval.py`, dont le jeu de test ne contient que des questions isolées.
+
+```bash
+```
+
 Résultats : `results/` (réponses brutes par niveau + tableau récapitulatif).
 Traces d'exécution : `traces/*.jsonl` (étapes, outils, arguments, tokens, durée).
 

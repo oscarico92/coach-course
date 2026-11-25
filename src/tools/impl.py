@@ -92,6 +92,20 @@ def meteo(args, ctx):
             "orage": day["weather_code"][0] in (95, 96, 99)}
 
 
+def previsions(debut, jours=7, location=PARIS):
+    """Prévisions Open-Meteo de plusieurs jours en une requête, pour l'affichage dans l'interface (pas un outil
+    de l'agent : l'agent appelle meteo jour par jour). Liste de {"date", "tmax_c", "vent_kmh", "orage", "code"}."""
+    fin = date.fromisoformat(str(debut)) + timedelta(days=jours - 1)
+    r = requests.get("https://api.open-meteo.com/v1/forecast", timeout=10, params={
+        "latitude": location[0], "longitude": location[1], "timezone": "Europe/Paris",
+        "start_date": str(debut), "end_date": fin.isoformat(),
+        "daily": "temperature_2m_max,wind_speed_10m_max,weather_code"})
+    r.raise_for_status()
+    d = r.json()["daily"]
+    return [{"date": d["time"][i], "tmax_c": d["temperature_2m_max"][i], "vent_kmh": d["wind_speed_10m_max"][i],
+             "orage": d["weather_code"][i] in (95, 96, 99), "code": d["weather_code"][i]} for i in range(len(d["time"]))]
+
+
 def _new_calendar():
     cal = Calendar()
     cal.add("prodid", "-//Foulees ECE//Coach Course//FR")

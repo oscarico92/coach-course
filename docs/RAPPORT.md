@@ -151,3 +151,5 @@ dépendante de la charge de la machine : 5,1 s puis 15,0 s au niveau 0 pour le m
   tous les niveaux et aux deux modèles.
 - gpt-6-luna tourne sans raisonnement (`reasoning_effort: none`, imposé avec des outils sur l'API utilisée).
 - Le découpage et la recherche n'ont pas été comparés à des alternatives.
+- Dans l'interface, les questions de suivi sont réécrites en question autonome avant d'être passées au niveau :
+  fonction non mesurée, le jeu de test ne contenant que des questions isolées.
