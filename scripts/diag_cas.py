@@ -42,6 +42,8 @@ def failure(r):
     if t == "ambiguous":
         return None if s.get("ok") else f"attendu : {case['expected']} (question de précision « ? » ou refus)"
     if t == "task":
+        if s.get("success") is None:   # niveaux sans outils : tâches non applicables (« — » dans le tableau)
+            return None
         failed = [k for k, v in (s.get("checks") or {}).items() if not v]
         return None if s.get("success") else "vérifications en échec : " + (", ".join(failed) or "?")
     return None

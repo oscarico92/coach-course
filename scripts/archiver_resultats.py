@@ -3,6 +3,7 @@ un dossier versionné : la consigne demande les résultats bruts par niveau et l
 
     python scripts/archiver_resultats.py gpt-6-luna
     python scripts/archiver_resultats.py qwen2.5-7b
+    python scripts/archiver_resultats.py qwen2.5-7b --remplacer   # écrase une archive existante de ce nom
 
 Vider traces/ AVANT le run (les traces s'ajoutent d'un run à l'autre), puis archiver juste APRÈS :
     Remove-Item traces\\*.jsonl      (PowerShell)
@@ -16,11 +17,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import RESULTS_DIR, ROOT, TRACES_DIR  # noqa: E402
 
-if len(sys.argv) != 2:
+args = [a for a in sys.argv[1:] if a != "--remplacer"]
+if len(args) != 1:
     sys.exit(__doc__)
-dest = ROOT / "resultats_finaux" / sys.argv[1]
+dest = ROOT / "resultats_finaux" / args[0]
 if dest.exists():
-    sys.exit(f"{dest} existe déjà : choisir un autre nom ou le supprimer d'abord.")
+    if "--remplacer" not in sys.argv:
+        sys.exit(f"{dest} existe déjà : choisir un autre nom, ou ajouter --remplacer pour l'écraser.")
+    for sub in ("results", "traces"):   # runs_precedents/ et autres ajouts manuels sont gardés
+        shutil.rmtree(dest / sub, ignore_errors=True)
 
 files = [(p, dest / "results" / p.name) for p in sorted(RESULTS_DIR.glob("*")) if p.is_file()]
 files += [(p, dest / "traces" / p.name) for p in sorted(TRACES_DIR.glob("*.jsonl"))]
