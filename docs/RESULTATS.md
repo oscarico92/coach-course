@@ -232,3 +232,12 @@ Les variables du terminal passent avant celles de `.env`. `results/summary.md` e
 `python eval.py` lance les niveaux 0 à 3 et le pass^3 des niveaux 2 et 3. Avant chaque run, vider `traces/` ; après,
 copier `results/` et `traces/` dans un dossier propre au modèle, à versionner (la consigne demande les résultats bruts
 par niveau et les traces dans le dépôt).
+
+## 10. Correction après les runs finaux (26/11/2026)
+
+En préparant la vidéo : `_propose` gardait le premier déplacement qui réduisait le nombre de violations, et pouvait
+s'arrêter sur une version encore refusée (fractionné un mercredi entre deux séances intenses : vendredi retenu, une
+violation, au lieu de samedi, conforme). Il retient désormais le meilleur candidat. **Aucun résultat mesuré ne
+change** : dans les traces archivées, tous les refus suivis d'une proposition n'avaient qu'une violation (le premier
+candidat qui améliore est alors le meilleur) ; le seul refus à plusieurs violations (task-009 avec qwen, semaine de
+7 séances, règle R6) reste sans solution par déplacement.

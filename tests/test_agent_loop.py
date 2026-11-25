@@ -234,6 +234,12 @@ p = agent._propose([P("2026-11-18", "fractionne")], [{"date": "2026-11-17", "tit
                    W(), TODAY)
 check("R2 : fractionné écarté d'au moins deux jours de l'autre séance intense",
       p and abs(_date.fromisoformat(p[0]["date"]) - _date(2026, 11, 17)).days >= 2)
+between = [{"date": "2026-11-17", "titre": "VMA", "intense": True, "km": 8},
+           {"date": "2026-11-19", "titre": "Allure 10 km", "intense": True, "km": 9},
+           {"date": "2026-11-22", "titre": "Sortie longue", "intense": False, "km": 9}]
+p = agent._propose([P("2026-11-18", "fractionne")], between, W(), TODAY)
+check("R2 entre deux intenses : meilleur candidat retenu (samedi), pas le premier qui améliore (vendredi)",
+      p and p[0]["date"] == "2026-11-21")
 full = [{"date": f"2026-11-{d}", "titre": "Footing", "intense": False, "km": 5} for d in range(16, 22)]
 check("R6 sans solution : pas de proposition", agent._propose([P("2026-11-22", "endurance", 5)], full, W(), TODAY) is None)
 out, cal, seen = run([[("ajouter_seances", {"seances": [{"jour": "jeudi", "titre": "Seuil", "type": "seuil", "km": 8}]})]],
@@ -261,5 +267,5 @@ out, cal, seen = run(seuil + ["Proposition.", "Proposition."], weather={"2026-11
 check("AGENT_AUTO_PROPOSITION=0 : rien n'est appliqué par le système", cal == [])
 agent.AGENT_AUTO_PROPOSITION = True
 
-print(f"\n{ok}/37 tests réussis")
-sys.exit(0 if ok == 37 else 1)
+print(f"\n{ok}/38 tests réussis")
+sys.exit(0 if ok == 38 else 1)

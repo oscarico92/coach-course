@@ -266,7 +266,7 @@ def _propose(seances, existing, get_weather, today):
     Pour chaque séance, dans l'ordre : déplacement vers le jour le plus proche de la même semaine
     (après plutôt qu'avant à distance égale, jamais dans le passé ni sur un jour déjà occupé), puis
     endurance le même jour si elle est intense, puis endurance déplacée. Une modification n'est gardée
-    que si elle réduit le nombre de violations. Ensuite, R1 : km réduits au prorata.
+    que si elle réduit le nombre de violations ; la meilleure est retenue. Ensuite, R1 : km réduits au prorata.
     Renvoie la liste conforme, ou None si aucune n'est trouvée (R6 par exemple)."""
     def violations(p):
         return rules.check(p, existing, {x["date"]: get_weather(x["date"]) for x in p})
@@ -293,12 +293,19 @@ def _propose(seances, existing, get_weather, today):
         candidates = moves
         if x.get("type") in tools.INTENSE_TYPES:
             candidates = moves + [easy(x)] + [easy(m) for m in moves]
+        # le candidat qui laisse le moins de violations (le premier dans l'ordre de préférence en cas d'égalité) ;
+        # garder le premier qui améliore pouvait s'arrêter sur une version encore refusée (fractionné un mercredi
+        # entre deux séances intenses : vendredi gardé, 1 violation, au lieu de samedi, conforme)
+        best = None
         for c in candidates:
             trial = prop[:i] + [c] + prop[i + 1:]
             n = len(violations(trial))
-            if n < base:
-                prop, base = trial, n
-                break
+            if n < base and (best is None or n < best[1]):
+                best = (trial, n)
+                if n == 0:
+                    break
+        if best:
+            prop, base = best
 
     if any(v.startswith("R1") for v in violations(prop)):
         for w in {date.fromisoformat(x["date"]) - timedelta(days=date.fromisoformat(x["date"]).weekday()) for x in prop}:
