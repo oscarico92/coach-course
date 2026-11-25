@@ -19,20 +19,24 @@ import requests
 from config import (EMBED_MODEL, LLM_MODEL, LLM_PROVIDER, LLM_TEMPERATURE, OLLAMA_URL, OPENAI_API_KEY,
                     OPENAI_REASONING_EFFORT, OPENAI_URL)
 
-# Valeurs par défaut modifiables à l'exécution (eval.py --pass-k fait varier la graine et la température)
+# Valeurs par défaut modifiables à l'exécution (eval.py --pass-k fait varier la graine et la température ;
+# l'interface choisit le fournisseur et le modèle dans sa barre latérale)
 TEMPERATURE = LLM_TEMPERATURE
 SEED = 0
+PROVIDER = LLM_PROVIDER
+MODEL = LLM_MODEL
 # Paramètres refusés par le modèle OpenAI (temperature, seed, ou reasoning_effort pour un modèle sans
 # raisonnement) : retirés après un refus
 # et signalés une fois, car les mesures ne sont alors plus faites à la température demandée.
 _UNSUPPORTED = set()
 
 
-def chat(messages, tools=None, model=LLM_MODEL, temperature=None, seed=None):
+def chat(messages, tools=None, model=None, temperature=None, seed=None):
+    model = MODEL if model is None else model
     temperature = TEMPERATURE if temperature is None else temperature
     seed = SEED if seed is None else seed
     t0 = time.perf_counter()
-    if LLM_PROVIDER == "openai":
+    if PROVIDER == "openai":
         out = _chat_openai(messages, tools, model, temperature, seed)
     else:
         out = _chat_ollama(messages, tools, model, temperature, seed)

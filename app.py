@@ -1,6 +1,7 @@
 """Interface : streamlit run app.py
 
-- choix du niveau 0 à 3 (seuls les niveaux disponibles sont proposés) ;
+- choix du modèle (qwen2.5:7b en local ou gpt-6-luna par l'API) et du niveau 0 à 3 (3 par défaut : l'assistant
+  complet ; les autres niveaux servent à comparer, comme le demande la consigne) ;
 - réponse, sources citées, durée, tokens, nombre d'étapes ;
 - trace de chaque exécution (étapes, outils, arguments) ;
 - niveaux 2 et 3 : toute écriture dans le calendrier attend un clic « Confirmer » ou « Refuser ».
@@ -9,7 +10,8 @@ from datetime import date, timedelta
 
 import streamlit as st
 
-from config import CALENDAR_DIR
+import src.llm as llm
+from config import CALENDAR_DIR, LLM_PROVIDER, OPENAI_API_KEY
 from src.levels import get_level, is_available, LEVEL_NAMES
 from src.tracing import Trace
 
@@ -25,8 +27,27 @@ state.setdefault("decision", None)     # message après confirmation / refus
 
 
 # ------------------------------------------------------------------ barre latérale
+# Modèle : même code pour les deux, seul l'appel au LLM change (src/llm.py). Les embeddings restent locaux.
+MODELS = {"qwen2.5:7b (local, Ollama)": ("ollama", "qwen2.5:7b"),
+          "gpt-6-luna (API OpenAI)": ("openai", "gpt-6-luna")}
+labels = list(MODELS)
+# valeur par défaut fixe (celle du .env) : calculée depuis llm.PROVIDER, elle changerait après chaque choix
+# et Streamlit recréerait le widget
+default = next((i for i, (prov, _) in enumerate(MODELS.values()) if prov == LLM_PROVIDER), 0)
+model_label = st.sidebar.radio("Modèle", labels, index=default, key="modele")
+llm.PROVIDER, llm.MODEL = MODELS[model_label]
+if llm.PROVIDER == "openai":
+    if not OPENAI_API_KEY:
+        st.sidebar.error("Clé absente : ajouter OPENAI_API_KEY dans .env (jamais dans le dépôt).")
+    if not llm.OPENAI_REASONING_EFFORT:
+        llm.OPENAI_REASONING_EFFORT = "none"   # configuration mesurée dans le rapport (sans raisonnement)
+st.sidebar.caption("Les embeddings (bge-m3) restent calculés en local par Ollama.")
+
 levels = [n for n in LEVEL_NAMES if is_available(n)]
-level = st.sidebar.radio("Niveau", levels, format_func=lambda n: f"{n} · {LEVEL_NAMES[n]}")
+level = st.sidebar.radio("Niveau", levels, index=levels.index(3) if 3 in levels else len(levels) - 1,
+                         format_func=lambda n: f"{n} · {LEVEL_NAMES[n]}")
+st.sidebar.caption("Le niveau 3 est l'assistant complet ; les niveaux 0 à 2 servent à comparer ce que chaque "
+                   "étape apporte, sur la même question.")
 missing = [f"{n} · {LEVEL_NAMES[n]}" for n in LEVEL_NAMES if n not in levels]
 if missing:
     st.sidebar.caption("Pas encore disponibles : " + ", ".join(missing))
@@ -70,7 +91,7 @@ if st.button("Envoyer", type="primary", disabled=state.pending is not None) and 
         else:
             out = module.answer(question, trace)
     data = trace.close(out)
-    state.result = {"out": out, "data": data, "level": level}
+    state.result = {"out": out, "data": data, "level": level, "model": llm.MODEL}
     state.pending = out.get("pending_write")
     state.decision = None
 
@@ -83,7 +104,8 @@ if state.result:
         st.caption("📚 Sources : " + ", ".join(out["sources"]))
     elif out.get("abstained"):
         st.caption("Abstention : l'information n'a pas été trouvée.")
-    c1, c2, c3, c4 = st.columns(4)
+    c0, c1, c2, c3, c4 = st.columns(5)
+    c0.metric("Modèle", state.result.get("model", ""))
     c1.metric("Niveau", f"{state.result['level']} · {LEVEL_NAMES[state.result['level']]}")
     c2.metric("Durée", f"{data['duration_s']:.1f} s")
     c3.metric("Tokens", data["total_tokens"])

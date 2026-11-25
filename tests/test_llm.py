@@ -66,7 +66,7 @@ check("aller-retour : le message renvoyé se reconvertit avec le même identifia
       llm.to_openai_messages([msg])[0]["tool_calls"][0]["id"] == "x1")
 
 # 3. appel complet : clé dans l'en-tête, paramètre refusé retiré puis requête relancée
-llm.OPENAI_API_KEY, llm.LLM_PROVIDER = "cle-de-test", "openai"
+llm.OPENAI_API_KEY, llm.PROVIDER = "cle-de-test", "openai"
 llm._UNSUPPORTED.clear()
 ok_body = {"choices": [{"message": {"role": "assistant", "content": "Bonjour"}}],
            "usage": {"prompt_tokens": 12, "completion_tokens": 3}}
