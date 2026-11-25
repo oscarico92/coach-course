@@ -54,9 +54,6 @@ Open-Meteo à 7 jours. Option « Questions de suivi » : la question est réécr
 derniers échanges (`src/conversation.py`) avant d'être passée au niveau, qui reste inchangé ; non mesurée par
 `eval.py`, dont le jeu de test ne contient que des questions isolées.
 
-```bash
-```
-
 Résultats : `results/` (réponses brutes par niveau + tableau récapitulatif).
 Traces d'exécution : `traces/*.jsonl` (étapes, outils, arguments, tokens, durée).
 
