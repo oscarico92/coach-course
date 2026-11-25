@@ -2,7 +2,7 @@
 
 Projet IA générative 2026 · parcours Texte · [À COMPLÉTER : noms] · dépôt : [À COMPLÉTER : lien GitHub]
 
-> Brouillon. Les passages marqués [À COMPLÉTER] attendent une mesure ou une information. Chiffres tirés de
+> Brouillon. Les passages marqués [À COMPLÉTER] attendent une information. Chiffres tirés de
 > `resultats_finaux/` (runs des 24 et 25/11/2026) et de `docs/RESULTATS.md`.
 
 ## 1. Cas d'usage
@@ -74,7 +74,9 @@ documentaire.
 
 **Évaluation.** Exactitude par mots-clés (`must_contain`), formats équivalents acceptés depuis le 24/11
 (« 4 min 58 s » = « 4:58 », « 13.3 » = « 13,3 »), runs archivés recalculés sans rappeler les modèles. Juge LLM
-calibré sur 20 cas annotés : [À COMPLÉTER : accord juge / humain, `python eval.py --calibrate-judge`].
+calibré sur 20 cas annotés à la main : **accord 18/20 (90 %)**, 2 réponses justes rejetées, 0 réponse fausse
+acceptée (juge [À COMPLÉTER : modèle utilisé pour la calibration]). Il est donc prudent mais un peu sévère : le tableau
+repose sur les mots-clés, et le juge sert de contrôle (`--judge`), où il ne peut que rendre la notation plus stricte.
 
 ## 4. Résultats : niveaux 0 à 3
 

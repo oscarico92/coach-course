@@ -196,9 +196,13 @@ conversion des temps, règles du club, version conforme après un refus).
   d'outils écrits en texte n'ont été mesurées qu'avec gpt-6-luna.
 - **Température.** Les runs gpt-6-luna sans raisonnement ont accepté la température (0, puis 0,7 pour le pass^3),
   comme qwen. Avec le raisonnement par défaut, gpt-6-luna n'accepte que la température 1.
-- **Cas ambigu en échec avec gpt-6-luna** (80 %) : non identifié, à lire dans `results/level2_raw.jsonl`.
+- **Cas ambigus en échec avec gpt-6-luna** : amb-002 (ajoute une séance sans demander laquelle) et amb-003 (demande
+  bien une précision, mais sans « ? » : faux négatif de la métrique).
 - **Choix de conception discutable** : avec `AGENT_AUTO_PROPOSITION=1`, la correction d'un refus est faite par le
   code et non plus par le modèle (avec confirmation de l'utilisateur).
+
+**Juge LLM** : accord avec les 20 annotations humaines 18/20 (90 %), 2 réponses justes rejetées, 0 réponse fausse
+acceptée (`python eval.py --calibrate-judge`).
 
 ## 8. Reproduire
 
