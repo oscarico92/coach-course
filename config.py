@@ -13,11 +13,18 @@ RESULTS_DIR = ROOT / "results"
 CALENDAR_DIR = ROOT / "calendar"
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()   # ollama ou openai
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")                 # dans .env uniquement, jamais versionnée
+OPENAI_URL = os.getenv("OPENAI_URL", "https://api.openai.com/v1")
+# Raisonnement des modèles OpenAI : vide = défaut du modèle. Toujours « none » quand des outils sont envoyés
+# (gpt-6-luna refuse les outils avec raisonnement sur /v1/chat/completions).
+OPENAI_REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "10"))
 MAX_AGENT_TOKENS = int(os.getenv("MAX_AGENT_TOKENS", "20000"))
+AGENT_AUTO_PROPOSITION = os.getenv("AGENT_AUTO_PROPOSITION", "1") == "1"  # 0 : le modèle doit recopier la proposition lui-même
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.45"))  # à régler avec les scores affichés par eval.py
 

@@ -77,3 +77,151 @@ python eval.py --levels 2
 - **Tests** : `tests/test_outils.py` (18 cas sur `calcul_allures` et `semaine_plan`) et 3 cas de relance dans `test_agent_loop.py` (11/11).
 
 Mesure après ces changements : tâches 12/12, cas ambigus `amb-*` au niveau 2 : 5/5.
+
+## Routage des questions documentaires (22/11/2026)
+
+**Constat.** Sur les 25 questions `doc-*`, le niveau 2 obtenait 24 à 28 % d'exactitude, 0 % de sources citées
+et 52 % d'abstentions à tort, contre 92 %, 92 % et 0 % au niveau 1. L'outil `rechercher_corpus` utilise pourtant
+la même recherche que le niveau 1. La différence : au niveau 1 la recherche est toujours faite, au niveau 2 le
+modèle doit décider de l'appeler, et avec 6 outils et un prompt centré sur le calendrier, `qwen2.5:7b` le faisait
+rarement (réponse de mémoire ou « JE NE SAIS PAS » sans chercher).
+
+**Correction.** Un premier appel court au modèle (`route`, température 0) classe la question :
+- `DOC` (information sur les plans, règles, définitions, sans calcul personnel ni calendrier) : chaîne RAG du
+  niveau 1 (recherche systématique, citations, abstention par seuil) ;
+- `ACTION` (calcul à partir de chiffres personnels, calendrier, météo, demande vague, hors sujet ou médicale) :
+  boucle de l'agent, inchangée. Une sortie illisible du routeur envoie aussi vers la boucle.
+
+Les exemples du prompt de routage ne viennent pas de `data/tests.jsonl` ; deux exemples trop proches de cas de test
+(`task-h03`, `amb-001`) ont été retirés pour ne pas biaiser la mesure des tâches non vues.
+
+**Coût.** Un appel LLM de plus par question (quelques centaines de tokens).
+
+**Mesurer.** `AGENT_ROUTER=0` rend le comportement d'avant. `eval.py` affiche le routage par type de question et les
+cas mal routés (attendu : `in_docs` et `absent` vers le RAG, `task` et `ambiguous` vers la boucle) ; le détail
+est aussi dans `results/summary.json` (clé `routage`) et dans `route` de `results/level2_raw.jsonl`.
+
+```bash
+AGENT_ROUTER=0 python eval.py --levels 2      # avant (sous Windows : set AGENT_ROUTER=0)
+python eval.py --levels 2                     # après
+```
+
+**Risque à surveiller.** Une tâche de calcul envoyée par erreur au RAG (ex. « je vise 1 h 50 au semi, quelle
+allure ? ») recevrait l'allure du plan 1 h 45 au lieu d'un calcul. Les écarts de routage sur les `task-*`
+sont donc le premier chiffre à regarder après la mesure.
+
+### Mesure du routage et repli vers le RAG (22/11/2026)
+
+Premier run avec routage (`qwen2.5:7b`) : exactitude doc 28 % -> 56 %, sources citées 0 % -> 44 %, abstention à tort
+52 % -> 24 %. Aucune tâche envoyée au RAG, mais 12 questions `doc-*` sur 25 restent dans la boucle : surtout des
+questions à la première personne (« je peux… ? », « ma sortie longue… ») et des questions sur une séance précise d'un plan.
+
+Les tâches passent toutes par la boucle, dont le code n'a pas changé, et pourtant : tâches vues 83 % -> 92 %, non vues
+40 % -> 20 %. Ollama n'est donc pas déterministe à température 0 ; un écart d'une tâche n'est pas un effet mesuré.
+
+Plutôt que de retoucher le prompt du routeur sur les cas qui échouent (ce serait régler le routeur sur le jeu de test),
+un repli structurel : si la boucle se termine **sans aucun appel d'outil**, sans question de précision (« ? ») et sans
+demande d'écriture, la question est repassée au RAG (route `agent>doc` dans les résultats). `AGENT_FALLBACK=0` le désactive.
+
+À vérifier après mesure : les refus `amb-004` et `amb-005` peuvent partir en repli ; ils restent corrects si le RAG
+s'abstient ou oriente vers un professionnel de santé.
+
+### Diagnostic des questions restées dans la boucle (`scripts/diag_routage.py`)
+
+Run avec repli : exactitude doc 60 %, sources 48 %, un seul cas rattrapé. Sur les 11 questions `doc-*` restées dans la boucle :
+
+- 5 sans outil, réponse « Je ne sais pas… ? » (doc-003, 004, 012, 019, 024) : le « ? » bloquait le repli. Corrigé :
+  une réponse sans outil qui commence par « JE NE SAIS PAS » est repassée au RAG, même avec une question.
+- 6 avec un outil mal choisi ou mal utilisé, non corrigés (limites du modèle 7B, à citer dans le rapport) :
+  `meteo` pour une question de règle (doc-018, doc-025, qui annonce même ajouter une séance alors qu'on ne lui a rien
+  demandé) ; `calcul_allures` avec 90 min au lieu de 105 pour 1 h 45 (doc-011, 4:16 au lieu de 4:58) ; bonne réponse
+  sans citation après `semaine_plan` ou `calcul_allures` (doc-010, doc-023) ; « 13.3 » au lieu de « 13,3 » (doc-015,
+  contrôle par mots-clés sensible au séparateur décimal, non modifié pour ne pas changer la métrique après coup).
+
+### Repli sur abstention : mesure et ajustement
+
+Run suivant : exactitude doc 76 %, sources 68 %, abstention à tort 0 %, mais ambigus 100 % -> 80 % : amb-001
+(« C'est quoi la meilleure ? ») partait en repli, le RAG s'abstenait sans poser de question. Ajustement : le repli ne
+remplace la réponse de l'agent que si le RAG apporte une réponse ; sinon la réponse de l'agent est conservée.
+Règle trouvée en analysant l'échec d'amb-001 (à mentionner), mais indépendante de la formulation des questions.
+
+## Diagnostic des tâches et corrections (23/11/2026)
+
+Run de référence (routage + repli) : tâches vues 92 %, **non vues 20 %**. `scripts/diag_taches.py` :
+
+| Tâche | Cause | Correction |
+|---|---|---|
+| task-h01 « Cale-moi la semaine 2 » | non reconnue comme écriture par `WRITE_REQUEST` : pas de relance, séances listées mais pas ajoutées | intention d'écriture donnée par le routeur (classe `ECRITURE`), le regex ne sert plus que sans routage |
+| task-h05 « au programme » | prise pour une écriture : relance vers `ajouter_seances`, réponse (35 km) perdue | idem |
+| task-h03 « 1 h 50 » | `temps_objectif_min: 100` au lieu de 110 (même erreur que doc-011 : 90 au lieu de 105) | `calcul_allures` reçoit `temps_objectif` en texte recopié (« 1 h 50 ») et le code convertit (`duree_minutes`) |
+| task-007 | allure juste mais écrite « 1 minute et 45 secondes » | réécrite en « 1:45 » par le code |
+| task-h02 | séance refusée (météo), le modèle répond « Séance ajoutée » sans rien écrire | non corrigeable par le code ; la réponse rappelle désormais qu'aucune séance n'a été enregistrée |
+
+Principe, comme pour les dates : le modèle recopie, le code calcule.
+
+**Biais de mesure.** Ces corrections viennent de l'analyse de task-h01, h02, h03 et h05 : ces tâches ne sont plus
+« non vues ». Les exemples du routeur n'utilisent ni « cale » ni « programme », mais il faut de nouvelles tâches
+non vues (`task-h06` et suivantes, écrites sans regarder le code) pour mesurer honnêtement la généralisation.
+
+**À surveiller.** Le prompt du routeur a changé (3 classes) : le routage des questions `doc-*` peut bouger.
+
+**Mesure (23/11/2026).** Questions doc : exactitude 92 % (égale au niveau 1), sources 80 %, ambigus 100 %.
+Tâches non vues 20 % -> 60 % (h03, h05), mais tâches vues 92 % -> 83 % : task-002 et task-012 (« calcule… **et
+ajoute**… ») n'étaient plus relancées, le routeur les classant sans doute en ACTION à cause du calcul (le regex
+les attrapait par « ajoute »). Correction : ECRITURE prioritaire quand la demande contient un ajout, même avec un
+calcul. `diag_taches.py` affiche désormais l'intention d'écriture retenue.
+
+**Mesure suivante.** Doc 92 %, tâches non vues 80 % (h01 passe), tâches vues toujours 83 % : task-002 et task-012
+restent classées sans intention d'écriture malgré la consigne de priorité. Le routeur 7B ne gère pas une
+classification à 3 classes avec priorité quand la demande commence par « Calcule… ». Correction : quand le routeur
+répond ACTION, une question binaire sans exemples (`write_intent`, OUI/NON : « la demande demande-t-elle d'ajouter des
+séances, même si elle demande aussi autre chose ? ») décide de l'intention d'écriture. Un appel court de plus, seulement
+pour les questions ACTION ; le routage des questions doc n'est pas modifié.
+
+## pass^3 et proposition d'une version conforme par le code (23/11/2026)
+
+pass^3 (3 essais, température 0,7) : 59 % (départ 41 %) ; tâches vues 9/12, non vues 2/5. Le run unique à
+température 0 (92 % / 80 %) surestime la fiabilité. `scripts/diag_traces.py` (détail des essais) :
+
+- task-010 et task-h05 : `écriture=False` sur tous les essais (pas de faux OUI). Quand elles échouent, le modèle
+  annonce l'outil (« je vais utiliser lire_calendrier ») sans l'appeler ; le repli vers le RAG n'y peut rien. Non corrigé.
+- task-005, task-006 (et task-h02) : même refus R5 à chaque essai ; selon l'essai, le modèle rappelle l'outil avec
+  une version conforme ou la propose en texte sans rien écrire, malgré les relances.
+
+**Correction.** Après un refus, `_propose` calcule par du code une version conforme : déplacement au jour le plus
+proche de la même semaine (après plutôt qu'avant, jamais dans le passé ni sur un jour occupé), sinon endurance le même
+jour pour une séance intense, puis km réduits au prorata pour R1. Elle est renvoyée dans le refus (`proposition`) avec la
+consigne de la recopier telle quelle ; la relance renvoie aussi vers elle. Pas de proposition si aucune version
+conforme n'existe (R6 par exemple) : l'ancienne consigne par règle s'applique.
+
+Simulation avec les vrais outils et les fixtures (premier appel refusé, puis proposition recopiée) : task-005, task-006,
+task-h02 et task-008 réussissent. Reste à mesurer si le modèle la recopie vraiment.
+
+**Choix non retenu.** Appliquer la proposition directement par le code (avec confirmation) rendrait le résultat
+indépendant du modèle, mais l'agent ne déciderait plus de rien : à discuter dans le rapport.
+
+### Mesure de la proposition et application par le système
+
+pass^3 : 65 % (11/17, vues 9/12, non vues 2/5) ; task-006 réussit désormais sur les 3 essais, task-005 et task-h02
+échouent encore. `diag_traces.py` montre pourquoi : le modèle **recopie la proposition dans sa réponse** (« voici la
+séance… exactement comme renvoyé par le système : ```json …``` ») au lieu de rappeler `ajouter_seances`, parfois avec
+une date fausse dans le texte. Autre défaut vu sur task-002 : un appel d'outil **écrit en texte**
+(`{"name": "ajouter_seances", "arguments": …}`), non reconnu par Ollama.
+
+Corrections :
+- un appel d'outil valide écrit dans le texte est exécuté comme un vrai appel (`_text_tool_calls`) ;
+- `AGENT_AUTO_PROPOSITION=1` (défaut) : si une proposition a été calculée et que le modèle termine sans rappeler l'outil,
+  le système l'applique (règles revérifiées, confirmation de l'utilisateur) et rédige la réponse lui-même avec les dates
+  réelles ; les relances vers la proposition sont supprimées (moins d'appels au modèle). `AGENT_AUTO_PROPOSITION=0`
+  rend le comportement précédent, pour mesurer l'écart.
+
+**Choix de conception à discuter dans le rapport** : avec l'option active, la correction d'un refus ne dépend plus du
+modèle. Le modèle comprend la demande et choisit les séances ; le code vérifie, corrige et écrit.
+
+## Restructuration en niveaux 2 et 3 (24/11/2026)
+
+Après lecture de la consigne (extension du niveau 3 à choisir dans la liste 2.4), le routeur, l'intention d'écriture
+de l'orchestrateur et le repli ont été déplacés dans `src/levels/level3_ext.py` (extension multi-agents). Le niveau 2
+est l'agent seul : intention d'écriture par `write_intent` (OUI/NON) au lieu du regex, proposition conforme calculée
+et appliquée par le système. `AGENT_ROUTER` et `AGENT_FALLBACK` sont supprimés ; les sections précédentes y font
+référence pour l'historique des mesures. Synthèse : `RESULTATS.md`.

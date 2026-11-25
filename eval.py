@@ -1,19 +1,25 @@
 """Reproduit le tableau de résultats.
 
-    python eval.py                      # tous les niveaux disponibles
+    python eval.py                      # tous les niveaux disponibles, avec pass^3 (tableau du rapport)
+    python eval.py --pass-k 0           # sans pass^3 (plus rapide)
     python eval.py --levels 0 1         # niveaux choisis
     python eval.py --judge              # ajoute le juge LLM pour l'exactitude (plus lent)
     python eval.py --limit 5            # test rapide
     python eval.py --calibrate-judge    # accord juge / annotations humaines
+    python eval.py --rescore resultats_finaux/gpt-6-luna/results
+                                        # recalcule les scores d'un run archivé, sans rappeler les modèles
 
 Sorties : results/level{n}_raw.jsonl (réponses brutes), results/summary.json et results/summary.md (tableau).
 """
 import argparse
 import json
+import re
 import statistics
+import sys
 import unicodedata
+from pathlib import Path
 
-from config import TESTS_PATH, RESULTS_DIR, DATA_DIR
+from config import TESTS_PATH, RESULTS_DIR, DATA_DIR, LLM_MODEL
 from src.tracing import Trace
 from src.task_checks import check_task
 from src.levels import get_level, is_available, LEVEL_NAMES
@@ -22,9 +28,20 @@ REFUSAL_MARKERS = ["je ne sais pas", "je ne peux pas", "je ne suis pas en mesure
                    "medecin", "hors de mon domaine", "course a pied uniquement", "ne fait pas partie"]
 
 
+# Formats équivalents d'une même valeur (changement du 24/11/2026, voir data/TESTS.md) : une réponse juste
+# ne doit pas échouer pour son format. « 4 min 58 s », « 4'58 » et « 1 minute et 45 secondes » -> « 4:58 » ;
+# séparateur décimal « 13.3 » -> « 13,3 ». Appliqué à la réponse et aux mots attendus, pour tous les niveaux.
+PACE_MIN_S = re.compile(r"(\d{1,2})\s*(?:minutes?|min|mn)\s*(?:et\s*)?(\d{1,2})\s*(?:secondes?|sec|s)\b")
+PACE_QUOTE = re.compile(r"(\d{1,2})\s*['’]\s*(\d{2})(?!\d)")
+DECIMAL_DOT = re.compile(r"(?<=\d)\.(?=\d)")
+
+
 def norm(text):
     text = unicodedata.normalize("NFKD", (text or "").lower().replace(" ", " ").replace("\xa0", " "))
-    return "".join(c for c in text if not unicodedata.combining(c))
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = PACE_MIN_S.sub(lambda m: f"{m[1]}:{int(m[2]):02d}", text)
+    text = PACE_QUOTE.sub(lambda m: f"{m[1]}:{m[2]}", text)
+    return DECIMAL_DOT.sub(",", text)
 
 
 def load_tests(limit=None):
@@ -140,7 +157,7 @@ def summarize(n, rows):
     task_rows = [r for r in rows if r["case"]["type"] == "task"]
     top = lambda t: [s["top_score"] for s in by(t) if "top_score" in s]
     return {
-        "niveau": f"{n} · {LEVEL_NAMES[n]}",
+        "niveau": f"{n} · {LEVEL_NAMES[n]} ({LLM_MODEL})",
         "recall@5": _rate([s.get("recall5") for s in docs]),
         "mrr": round(statistics.mean(s["rr"] for s in docs), 3) if docs and "rr" in docs[0] else None,
         "exactitude": _rate([s["correct"] for s in docs]),
@@ -159,6 +176,26 @@ def summarize(n, rows):
         "score_max_moy_in_docs": round(statistics.mean(top("in_docs")), 3) if top("in_docs") else None,
         "score_max_moy_absent": round(statistics.mean(top("absent")), 3) if top("absent") else None,
     }
+
+
+def routing_report(rows):
+    """Niveau 3 (multi-agents) : vers quel agent chaque type de question est parti.
+    doc = agent documentaire dès l'orchestrateur, agent = agent actions, agent>doc = agent actions sans outil
+    puis repli vers l'agent documentaire.
+    Attendu : in_docs et absent finissent au RAG, task et ambiguous dans la boucle. Les écarts sont listés par cas."""
+    routed = [r for r in rows if r["output"].get("route")]
+    if not routed:
+        return None
+    expected = {"in_docs": "doc", "absent": "doc", "task": "agent", "ambiguous": "agent"}
+    counts, errors = {}, []
+    for r in routed:
+        t, got = r["case"]["type"], r["output"]["route"]
+        c = counts.setdefault(t, {"doc": 0, "agent": 0, "agent>doc": 0})
+        c[got] = c.get(got, 0) + 1
+        final = "doc" if got.endswith("doc") else "agent"
+        if final != expected.get(t, final):
+            errors.append(f"{r['case']['id']}->{got}")
+    return {"par_type": counts, "ecarts": errors}
 
 
 def to_markdown(table):
@@ -219,19 +256,52 @@ def pass_k(n, tasks, k, temperature):
     return round(sum(ok.values()) / len(ok), 3)
 
 
+def rescore(folder, levels, use_judge=False):
+    """Recalcule le tableau d'un run archivé à partir de ses réponses brutes (aucun appel aux modèles, sauf
+    --judge). Le pass^k n'est pas recalculable (essais non enregistrés) : il est repris du summary.json du dossier.
+    Écrit summary_rescore.json et summary_rescore.md dans le dossier."""
+    old = {}
+    if (folder / "summary.json").exists():
+        old = {row["niveau"].split(" · ")[0]: row for row in json.load(open(folder / "summary.json", encoding="utf-8"))}
+    table = []
+    for n in levels:
+        path = folder / f"level{n}_raw.jsonl"
+        if not path.exists():
+            continue
+        rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+        rows = score_rows(rows, use_judge=use_judge)
+        summary = summarize(n, rows)
+        prev = old.get(str(n), {})
+        summary["niveau"] = prev.get("niveau", summary["niveau"])   # nom du modèle du run d'origine
+        summary["pass_k"] = prev.get("pass_k")
+        table.append(summary)
+    if not table:
+        sys.exit(f"Aucun levelN_raw.jsonl dans {folder}")
+    json.dump(table, open(folder / "summary_rescore.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    md = to_markdown(table)
+    (folder / "summary_rescore.md").write_text(md + "\n", encoding="utf-8")
+    print(md)
+    print(f"\nÉcrit : {folder / 'summary_rescore.md'}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--levels", type=int, nargs="+", default=[0, 1, 2, 3])
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--judge", action="store_true", help="exactitude vérifiée aussi par le juge LLM")
     p.add_argument("--calibrate-judge", action="store_true")
-    p.add_argument("--pass-k", type=int, default=0,
-                   help="relance les tâches k fois (graines différentes) : une tâche compte si les k essais réussissent")
+    p.add_argument("--pass-k", type=int, default=3,
+                   help="relance les tâches k fois (graines différentes) : une tâche compte si les k essais réussissent ; "
+                        "0 pour ne pas le faire (3 par défaut, colonne pass^3 du tableau attendu)")
+    p.add_argument("--rescore", metavar="DOSSIER",
+                   help="recalcule les scores à partir des levelN_raw.jsonl d'un dossier (pass^k repris de son summary.json)")
     p.add_argument("--pass-temp", type=float, default=0.7,
                    help="température des essais pass^k (à 0, les essais seraient quasi identiques)")
     args = p.parse_args()
     if args.calibrate_judge:
         return calibrate_judge()
+    if args.rescore:
+        return rescore(Path(args.rescore), args.levels, args.judge)
 
     tests = load_tests(args.limit)
     table = []
@@ -245,7 +315,15 @@ def main():
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
         summary = summarize(n, rows)
-        if args.pass_k and getattr(get_level(n), "USES_TOOLS", False):
+        routing = routing_report(rows)
+        if routing:
+            summary["routage"] = routing
+            print("  Routage : " + ", ".join(f"{t} {c['doc']} doc / {c['agent']} agent / {c['agent>doc']} repli"
+                                              for t, c in routing["par_type"].items()))
+            print("  Écarts au routage attendu : " + (", ".join(routing["ecarts"]) or "aucun"))
+        if args.pass_k and getattr(get_level(n), "USES_TOOLS", False) and summary["erreurs"]:
+            print(f"  pass^{args.pass_k} ignoré : {summary['erreurs']} erreur(s) au run principal, à corriger d'abord")
+        elif args.pass_k and getattr(get_level(n), "USES_TOOLS", False):
             summary["pass_k"] = pass_k(n, [c for c in tests if c["type"] == "task"], args.pass_k, args.pass_temp)
         table.append(summary)
 

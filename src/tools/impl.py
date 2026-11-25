@@ -21,7 +21,30 @@ def _pace(kmh, km=1.0):
     return f"{m}:{s:02d}"
 
 
+DUREE_HMS = re.compile(r"^\s*(\d{1,2}):(\d{2}):(\d{2})\s*$")
+DUREE_H = re.compile(r"(\d{1,2})\s*(?:heures?|h)\s*(?:(\d{1,2})\s*(?:min(?:utes?)?)?)?", re.I)
+DUREE_MIN = re.compile(r"(\d{1,3})\s*(?:min(?:utes?)?|mn)\b", re.I)
+
+
+def duree_minutes(text):
+    """Convertit un temps écrit par l'utilisateur en minutes : « 1 h 50 », « 1h50 », « 3 heures 45 »,
+    « 50 min », « 50 minutes », « 1:50:00 ». Lève ValueError si le texte n'est pas reconnu."""
+    t = str(text).strip()
+    m = DUREE_HMS.match(t)
+    if m:
+        return int(m[1]) * 60 + int(m[2]) + int(m[3]) / 60
+    m = DUREE_H.search(t)
+    if m:
+        return int(m[1]) * 60 + int(m[2] or 0)
+    m = DUREE_MIN.search(t)
+    if m:
+        return int(m[1])
+    raise ValueError(f"Temps objectif non reconnu : « {text} ». Recopier le temps tel qu'écrit, ex. « 1 h 50 » ou « 50 min ».")
+
+
 def calcul_allures(args, ctx):
+    if args.get("temps_objectif"):    # texte recopié de la question : la conversion est faite par le code
+        args = {**args, "temps_objectif_min": duree_minutes(args["temps_objectif"])}
     vma = args.get("vma_kmh")
     cible = None
     if not vma and args.get("distance_test_m"):
@@ -37,12 +60,12 @@ def calcul_allures(args, ctx):
         if cible:
             return {"allure_cible": cible}
         raise ValueError("Il faut une VMA (vma_kmh), un test demi-Cooper (distance_test_m) "
-                         "ou un temps objectif avec sa distance (temps_objectif_min + distance_km).")
+                         "ou un temps objectif avec sa distance (temps_objectif + distance_km).")
 
     vma = round(float(vma), 1)
     if not 8 <= vma <= 25:
         raise ValueError(f"VMA de {vma} km/h peu plausible (attendu entre 8 et 25). "
-                         "Pour un temps objectif, passer temps_objectif_min et distance_km.")
+                         "Pour un temps objectif, passer temps_objectif et distance_km.")
     out = {"vma_kmh": vma,
            "allures": {zone: _pace(vma * p) for zone, p in ZONES.items()},
            "400 m à 95 % VMA": _pace(vma * 0.95, 0.4),
@@ -67,6 +90,20 @@ def meteo(args, ctx):
     day = r.json()["daily"]
     return {"date": d, "tmax_c": day["temperature_2m_max"][0], "vent_kmh": day["wind_speed_10m_max"][0],
             "orage": day["weather_code"][0] in (95, 96, 99)}
+
+
+def previsions(debut, jours=7, location=PARIS):
+    """Prévisions Open-Meteo de plusieurs jours en une requête, pour l'affichage dans l'interface (pas un outil
+    de l'agent : l'agent appelle meteo jour par jour). Liste de {"date", "tmax_c", "vent_kmh", "orage", "code"}."""
+    fin = date.fromisoformat(str(debut)) + timedelta(days=jours - 1)
+    r = requests.get("https://api.open-meteo.com/v1/forecast", timeout=10, params={
+        "latitude": location[0], "longitude": location[1], "timezone": "Europe/Paris",
+        "start_date": str(debut), "end_date": fin.isoformat(),
+        "daily": "temperature_2m_max,wind_speed_10m_max,weather_code"})
+    r.raise_for_status()
+    d = r.json()["daily"]
+    return [{"date": d["time"][i], "tmax_c": d["temperature_2m_max"][i], "vent_kmh": d["wind_speed_10m_max"][i],
+             "orage": d["weather_code"][i] in (95, 96, 99), "code": d["weather_code"][i]} for i in range(len(d["time"]))]
 
 
 def _new_calendar():

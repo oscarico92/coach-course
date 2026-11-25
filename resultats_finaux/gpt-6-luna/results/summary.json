@@ -1,0 +1,106 @@
+[
+  {
+    "niveau": "0 · LLM seul (gpt-6-luna)",
+    "recall@5": null,
+    "mrr": null,
+    "exactitude": 0.16,
+    "sources_citees": 0.0,
+    "abstention": 0.8,
+    "abstention_a_tort": 0.28,
+    "ambigus_ok": 0.6,
+    "succes_taches": null,
+    "succes_taches_non_vues": null,
+    "pass_k": null,
+    "tokens_moy": 245,
+    "latence_moy_s": 1.69,
+    "erreurs": 0,
+    "score_max_moy_in_docs": null,
+    "score_max_moy_absent": null
+  },
+  {
+    "niveau": "1 · RAG (gpt-6-luna)",
+    "recall@5": 1.0,
+    "mrr": 0.89,
+    "exactitude": 0.88,
+    "sources_citees": 1.0,
+    "abstention": 1.0,
+    "abstention_a_tort": 0.0,
+    "ambigus_ok": 0.8,
+    "succes_taches": null,
+    "succes_taches_non_vues": null,
+    "pass_k": null,
+    "tokens_moy": 1024,
+    "latence_moy_s": 3.43,
+    "erreurs": 0,
+    "score_max_moy_in_docs": 0.691,
+    "score_max_moy_absent": 0.513
+  },
+  {
+    "niveau": "2 · Agent (gpt-6-luna)",
+    "recall@5": null,
+    "mrr": null,
+    "exactitude": 1.0,
+    "sources_citees": 1.0,
+    "abstention": 1.0,
+    "abstention_a_tort": 0.0,
+    "ambigus_ok": 0.6,
+    "succes_taches": 1.0,
+    "succes_taches_non_vues": 1.0,
+    "pass_k": 1.0,
+    "tokens_moy": 5155,
+    "latence_moy_s": 5.78,
+    "erreurs": 0,
+    "score_max_moy_in_docs": null,
+    "score_max_moy_absent": null
+  },
+  {
+    "niveau": "3 · Multi-agents (gpt-6-luna)",
+    "recall@5": null,
+    "mrr": null,
+    "exactitude": 0.92,
+    "sources_citees": 1.0,
+    "abstention": 1.0,
+    "abstention_a_tort": 0.0,
+    "ambigus_ok": 0.6,
+    "succes_taches": 1.0,
+    "succes_taches_non_vues": 1.0,
+    "pass_k": 1.0,
+    "tokens_moy": 4106,
+    "latence_moy_s": 5.45,
+    "erreurs": 0,
+    "score_max_moy_in_docs": 0.696,
+    "score_max_moy_absent": 0.514,
+    "routage": {
+      "par_type": {
+        "in_docs": {
+          "doc": 20,
+          "agent": 5,
+          "agent>doc": 0
+        },
+        "absent": {
+          "doc": 4,
+          "agent": 1,
+          "agent>doc": 0
+        },
+        "ambiguous": {
+          "doc": 0,
+          "agent": 5,
+          "agent>doc": 0
+        },
+        "task": {
+          "doc": 0,
+          "agent": 17,
+          "agent>doc": 0
+        }
+      },
+      "ecarts": [
+        "doc-004->agent",
+        "doc-015->agent",
+        "doc-018->agent",
+        "doc-019->agent",
+        "doc-023->agent",
+        "abs-001->agent"
+      ]
+    }
+  }
+]

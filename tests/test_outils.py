@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.tools.impl import calcul_allures, semaine_plan  # noqa: E402
+from src.tools.impl import calcul_allures, duree_minutes, semaine_plan  # noqa: E402
 
 CTX = {"today": "2026-11-12"}
 ok = total = 0
@@ -34,7 +34,12 @@ check("demi-Cooper 1450 m : VMA 14,5 et 400 m à 95 % en 1:45", r["vma_kmh"] == 
 check("marathon en 3 h 45 : allure cible 5:20",
       calcul_allures({"temps_objectif_min": 225, "distance_km": 42.195}, CTX)["allure_cible"] == "5:20")
 check("10 km en 50 min : VMA estimée 13,3", calcul_allures({"temps_objectif_min": 50, "distance_km": 10}, CTX)["vma_kmh"] == 13.3)
-for args in ({}, {"vma_kmh": 36}):
+# temps objectif recopié par le modèle, converti par le code
+check("durées : 1 h 50, 1h45, 3 heures 45, 50 min, 1:50:00, 2 h",
+      [duree_minutes(x) for x in ("1 h 50", "1h45", "3 heures 45", "50 min", "1:50:00", "2 h")] == [110, 105, 225, 50, 110, 120])
+check("semi en « 1 h 50 » : allure cible 5:13",
+      calcul_allures({"temps_objectif": "1 h 50", "distance_km": 21.0975}, CTX)["allure_cible"] == "5:13")
+for args in ({}, {"vma_kmh": 36}, {"temps_objectif": "rapide", "distance_km": 10}):
     try:
         calcul_allures(args, CTX)
         check(f"erreur attendue pour {args}", False)

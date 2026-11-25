@@ -25,7 +25,8 @@ SCHEMAS = [
                        "ou d'un temps objectif sur une distance. Toujours utiliser cet outil pour un calcul d'allure.",
         "parameters": {"type": "object", "properties": {
             "vma_kmh": {"type": "number", "description": "VMA en km/h"},
-            "temps_objectif_min": {"type": "number", "description": "temps visé en minutes"},
+            "temps_objectif": {"type": "string",
+                               "description": "temps visé recopié tel qu'écrit par l'utilisateur, ex. « 1 h 50 », « 50 min »"},
             "distance_km": {"type": "number", "description": "distance de la course visée en km (5, 10, 21.0975, 42.195)"},
             "distance_test_m": {"type": "number", "description": "distance parcourue au test demi-Cooper (6 min), en mètres"}},
             "required": []}}},
