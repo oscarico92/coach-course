@@ -7,7 +7,8 @@
   (src/conversation.py), puis passée au niveau choisi, qui reste inchangé (hors évaluation) ;
 - sous chaque réponse : sources citées, modèle, niveau, durée, tokens, étapes, et la trace complète ;
 - niveaux 2 et 3 : toute écriture dans le calendrier attend un clic « Confirmer » ou « Refuser » ;
-- barre latérale : calendrier des 3 semaines à venir, export .ics, prévisions Open-Meteo à 7 jours.
+- page principale : conversation à gauche ; à droite, calendrier des semaines à venir (export .ics) et
+  prévisions Open-Meteo à 7 jours avec les alertes de la règle R5. Barre latérale : réglages.
 """
 from datetime import date, timedelta
 
@@ -64,29 +65,41 @@ if st.sidebar.button("🗑️ Nouvelle conversation", use_container_width=True):
     st.rerun()
 
 
-# ------------------------------------------------------------------ barre latérale : calendrier et météo
+# ------------------------------------------------------------------ calendrier et météo (colonne de droite)
+WEEK_LABELS = ["Cette semaine", "Semaine prochaine", "Dans 2 semaines", "Dans 3 semaines"]
+
+
 def show_calendar():
     from src.tools import impl
     today = date.today()
-    st.sidebar.subheader("📅 Mon calendrier")
+    monday = today - timedelta(days=today.weekday())
+    st.subheader("📅 Mon calendrier")
     try:
         res = impl.lire_calendrier({"date_debut": today.isoformat(),
-                                    "date_fin": (today + timedelta(days=21)).isoformat()},
+                                    "date_fin": (monday + timedelta(days=27)).isoformat()},
                                    {"calendar_path": CAL_PATH})
     except Exception as e:
-        st.sidebar.caption(f"Calendrier illisible : {e}")
+        st.caption(f"Calendrier illisible : {e}")
         return
     if not res["seances"]:
-        st.sidebar.caption("Aucune séance prévue dans les 3 semaines.")
-    for s in sorted(res["seances"], key=lambda x: x["date"]):
+        st.caption("Aucune séance prévue. Demande par exemple : « Ajoute la semaine 1 du plan 10 km la semaine "
+                   "prochaine. »")
+    week = None
+    for s in sorted(res["seances"], key=lambda x: str(x["date"])):
         d = date.fromisoformat(str(s["date"]))
+        w = (d - monday).days // 7
+        if w != week:
+            week = w
+            total = sum(float(x.get("km") or 0) for x in res["seances"]
+                        if (date.fromisoformat(str(x["date"])) - monday).days // 7 == w)
+            st.markdown(f"**{WEEK_LABELS[min(w, 3)]}** · {total:g} km")
         km = f"{s['km']:g}" if isinstance(s.get("km"), (int, float)) else "?"
-        st.sidebar.markdown(f"**{JOURS[d.weekday()]} {d.strftime('%d/%m')}** · {s['titre']} ({km} km)"
-                            + (" 🔥" if s.get("intense") else ""))
+        st.markdown(f"{'🔥' if s.get('intense') else '🏃'} {JOURS[d.weekday()]} {d.strftime('%d/%m')} · "
+                    f"{s['titre']} ({km} km)")
     if CAL_PATH.exists():
-        st.sidebar.download_button("⬇️ Exporter le calendrier (.ics)", CAL_PATH.read_bytes(),
-                                   file_name="coach-course.ics", mime="text/calendar", use_container_width=True,
-                                   help="À importer dans Google Agenda, Outlook ou Calendrier.")
+        st.download_button("⬇️ Exporter le calendrier (.ics)", CAL_PATH.read_bytes(),
+                           file_name="coach-course.ics", mime="text/calendar", use_container_width=True,
+                           help="À importer dans Google Agenda, Outlook ou Calendrier.")
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -106,26 +119,25 @@ def weather_icon(f):
 
 
 def show_weather():
-    st.sidebar.subheader("🌤️ Météo à Paris (Open-Meteo)")
+    st.subheader("🌤️ Météo à Paris")
     try:
         days = forecast(date.today().isoformat())
     except Exception:
-        st.sidebar.caption("Prévisions indisponibles (pas de réseau ?). L'agent ne bloque alors pas sur la règle R5.")
+        st.caption("Prévisions Open-Meteo indisponibles (pas de réseau ?). L'agent ne bloque alors pas sur la "
+                   "règle R5.")
         return
     for f in days:
         d = date.fromisoformat(f["date"])
-        alerts = []
+        alert = ""
         if f["orage"] or f["vent_kmh"] > rules.WIND_KMH:
-            alerts.append("séance à reporter (R5)")
+            alert = " · ⚠️ séance à reporter (R5)"
         elif f["tmax_c"] > rules.HOT_C:
-            alerts.append("pas d'intense (R5)")
-        st.sidebar.markdown(f"{weather_icon(f)} **{JOURS[d.weekday()]} {d.strftime('%d/%m')}** · "
-                            f"{f['tmax_c']:.0f} °C · vent {f['vent_kmh']:.0f} km/h"
-                            + (f"  \n⚠️ {', '.join(alerts)}" if alerts else ""))
+            alert = " · ⚠️ pas d'intense (R5)"
+        st.markdown(f"{weather_icon(f)} {JOURS[d.weekday()]} {d.strftime('%d/%m')} · {f['tmax_c']:.0f} °C · "
+                    f"vent {f['vent_kmh']:.0f} km/h{alert}")
+    st.caption("Source : Open-Meteo. Vérifiée par le code avant tout ajout (règle R5).")
 
 
-show_calendar()
-show_weather()
 
 
 # ------------------------------------------------------------------ exécution d'une question
@@ -184,13 +196,14 @@ def show_trace(data):
 # ------------------------------------------------------------------ conversation
 st.title("🏃 Coach Course")
 st.caption("Assistant d'entraînement du club fictif « Foulées ECE » · projet IA générative")
+col_chat, col_side = st.columns([2.2, 1], gap="large")
+with col_side:
+    with st.container(border=True):
+        show_calendar()
+    with st.container(border=True):
+        show_weather()
 
-if not state.turns:
-    st.info("Exemples : « Quelle est la séance de fractionné de la semaine 6 du plan 10 km ? » · "
-            "« Ma VMA est de 15 km/h, quelles sont mes allures ? » · "
-            "« Ajoute la semaine 1 du plan 10 km dans mon calendrier la semaine prochaine. »")
-
-for i, turn in enumerate(state.turns):
+def show_turn(i, turn):
     last = i == len(state.turns) - 1
     with st.chat_message("user"):
         st.markdown(turn["question"])
@@ -230,14 +243,27 @@ for i, turn in enumerate(state.turns):
                 state.turns[-1] = run_turn(turn["question"], history_for(state.turns[:-1]))
             st.rerun()
 
-pending = any(t["pending"] for t in state.turns)
-question = st.chat_input("Confirme ou refuse l'action en attente avant de continuer" if pending else "Ta question…",
-                         disabled=pending)
-if question and question.strip():
-    with st.chat_message("user"):
-        st.markdown(question)
-    with st.chat_message("assistant"):
-        with st.spinner("Réflexion…"):
-            turn = run_turn(question, history_for(state.turns))
-    state.turns.append(turn)
-    st.rerun()
+
+with col_chat:
+    # zone de conversation de hauteur fixe : le calendrier et la météo restent visibles à côté
+    chat_box = st.container(height=620, border=False)
+    with chat_box:
+        if not state.turns:
+            st.info("Exemples : « Quelle est la séance de fractionné de la semaine 6 du plan 10 km ? » · "
+                    "« Ma VMA est de 15 km/h, quelles sont mes allures ? » · "
+                    "« Ajoute la semaine 1 du plan 10 km dans mon calendrier la semaine prochaine. »")
+        for i, turn in enumerate(state.turns):
+            show_turn(i, turn)
+
+    pending = any(t["pending"] for t in state.turns)
+    question = st.chat_input("Confirme ou refuse l'action en attente avant de continuer" if pending
+                             else "Ta question…", disabled=pending)
+    if question and question.strip():
+        with chat_box:
+            with st.chat_message("user"):
+                st.markdown(question)
+            with st.chat_message("assistant"):
+                with st.spinner("Réflexion…"):
+                    turn = run_turn(question, history_for(state.turns))
+        state.turns.append(turn)
+        st.rerun()
